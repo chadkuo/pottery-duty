@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#7a5c3e">
+<title>陶藝班值日生排班</title>
+<style>
+:root{
+  --bg:#faf7f3; --card:#ffffff; --ink:#2c2521; --muted:#7c6f66;
+  --line:#e6ded5; --brand:#8a6544; --brand-ink:#ffffff;
+  --ok:#2e7d5b; --ok-bg:#e6f4ed; --warn:#a8631a; --warn-bg:#fdf1e2;
+  --me:#3f6ea8; --me-bg:#e8f0fa; --off:#efe9e2;
+  --shadow:0 1px 2px rgba(44,37,33,.06),0 4px 14px rgba(44,37,33,.05);
+  --radius:14px;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#17140f; --card:#211d18; --ink:#efe8df; --muted:#a1958a;
+    --line:#332c24; --brand:#c79a6c; --brand-ink:#1d1712;
+    --ok:#6fc79b; --ok-bg:#16281f; --warn:#e0a763; --warn-bg:#2a1f12;
+    --me:#8fb6e8; --me-bg:#182231; --off:#2a241d;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 4px 14px rgba(0,0,0,.25);
+  }
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font:16px/1.6 -apple-system,BlinkMacSystemFont,"PingFang TC","Noto Sans TC","Segoe UI",sans-serif;
+  -webkit-text-size-adjust:100%;
+}
+.wrap{max-width:640px; margin:0 auto; padding:0 16px 64px}
+
+/* ── 頁首 ───────────────────────────────── */
+header{padding:22px 0 14px}
+h1{margin:0; font-size:20px; letter-spacing:.02em}
+.sub{color:var(--muted); font-size:13px; margin-top:2px}
+
+/* ── 身分列（吸頂） ─────────────────────── */
+.who{
+  position:sticky; top:0; z-index:20; margin:0 -16px; padding:10px 16px;
+  background:color-mix(in srgb,var(--bg) 88%,transparent);
+  backdrop-filter:saturate(1.6) blur(12px);
+  border-bottom:1px solid var(--line);
+}
+.who-row{display:flex; gap:8px; align-items:center}
+.who label{font-size:13px; color:var(--muted); white-space:nowrap}
+select,input[type=text]{
+  flex:1; min-width:0; font:inherit; font-size:15px; padding:9px 11px;
+  border:1px solid var(--line); border-radius:10px;
+  background:var(--card); color:var(--ink); appearance:none;
+}
+.mine{font-size:13px; color:var(--muted); margin-top:7px; min-height:20px}
+.mine b{color:var(--ink)}
+.pill{display:inline-block; padding:1px 8px; border-radius:999px; font-size:12px; font-weight:600}
+.pill.ok{background:var(--ok-bg); color:var(--ok)}
+.pill.warn{background:var(--warn-bg); color:var(--warn)}
+
+/* ── 本週橫幅 ───────────────────────────── */
+.banner{
+  margin:16px 0; padding:14px 16px; border-radius:var(--radius);
+  background:var(--card); border:1px solid var(--line); box-shadow:var(--shadow);
+  border-left:4px solid var(--brand);
+}
+.banner .t{font-size:12px; color:var(--muted); letter-spacing:.08em}
+.banner .n{font-size:19px; font-weight:600; margin-top:3px}
+.banner .d{font-size:13px; color:var(--muted); margin-top:2px}
+
+/* ── 週次卡片 ───────────────────────────── */
+.sec{font-size:12px; color:var(--muted); letter-spacing:.08em; margin:26px 0 10px}
+.week{
+  background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+  padding:12px 14px; margin-bottom:10px; box-shadow:var(--shadow);
+}
+.week.now{border-color:var(--brand); box-shadow:0 0 0 2px color-mix(in srgb,var(--brand) 18%,transparent),var(--shadow)}
+.week.past{opacity:.55}
+.week.off{background:var(--off); box-shadow:none}
+.week-head{display:flex; align-items:baseline; gap:8px; flex-wrap:wrap}
+.date{font-size:16px; font-weight:600; font-variant-numeric:tabular-nums}
+.meta{font-size:12px; color:var(--muted)}
+.tag{margin-left:auto; font-size:12px; padding:2px 9px; border-radius:999px; background:var(--off); color:var(--muted)}
+.tag.full{background:var(--ok-bg); color:var(--ok)}
+.tag.need{background:var(--warn-bg); color:var(--warn)}
+.slots{display:flex; gap:7px; margin-top:10px; flex-wrap:wrap}
+.slot{
+  flex:1 1 30%; min-width:96px; min-height:44px; padding:8px 10px;
+  border-radius:10px; border:1px solid var(--line); background:var(--bg);
+  display:flex; align-items:center; justify-content:center; gap:6px;
+  font-size:15px; text-align:center; line-height:1.25;
+}
+.slot.filled{background:var(--card)}
+.slot.self{background:var(--me-bg); border-color:var(--me); color:var(--me); font-weight:600; cursor:pointer}
+.slot.empty{border-style:dashed; color:var(--muted); cursor:pointer; font-size:14px}
+.slot.empty:active{background:var(--me-bg)}
+.slot[disabled]{cursor:default; opacity:.75}
+button.slot{font-family:inherit}
+.x{font-size:12px; opacity:.7}
+
+/* ── 進度 ───────────────────────────────── */
+.stat{background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:14px 16px; box-shadow:var(--shadow)}
+.stat h2{margin:0 0 8px; font-size:14px}
+.names{display:flex; flex-wrap:wrap; gap:6px; margin-top:6px}
+.name{font-size:13px; padding:3px 10px; border-radius:999px; background:var(--warn-bg); color:var(--warn)}
+.name.done{background:var(--ok-bg); color:var(--ok)}
+.bar{height:6px; border-radius:3px; background:var(--off); overflow:hidden; margin:8px 0 4px}
+.bar>i{display:block; height:100%; background:var(--brand)}
+
+/* ── 提示 ───────────────────────────────── */
+.toast{
+  position:fixed; left:50%; bottom:24px; transform:translateX(-50%) translateY(12px);
+  max-width:calc(100% - 32px); padding:11px 16px; border-radius:12px;
+  background:var(--ink); color:var(--bg); font-size:14px; box-shadow:var(--shadow);
+  opacity:0; pointer-events:none; transition:opacity .18s,transform .18s; z-index:50;
+}
+.toast.show{opacity:1; transform:translateX(-50%) translateY(0)}
+.toast.err{background:#a33a2e; color:#fff}
+.msg{padding:40px 0; text-align:center; color:var(--muted); font-size:14px}
+.msg code{font-size:12px; word-break:break-all}
+footer{margin-top:28px; text-align:center; color:var(--muted); font-size:12px}
+.busy{opacity:.5; pointer-events:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1 id="title">值日生排班</h1>
+    <div class="sub" id="subtitle">載入中…</div>
+  </header>
+
+  <div class="who" hidden id="whoBar">
+    <div class="who-row">
+      <label for="me">我是</label>
+      <select id="me"><option value="">請選擇你的名字</option></select>
+    </div>
+    <div class="mine" id="mine"></div>
+  </div>
+
+  <div id="app"><div class="msg">載入中…</div></div>
+
+  <footer id="foot"></footer>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="config.js"></script>
+<script src="demo-data.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var API = window.DUTY_API_URL || '';
+  var NOT_SET = !API || API.indexOf('PASTE_') === 0;
+  // 尚未設定後端、或網址帶 ?demo 時，改用瀏覽器內建的假資料，方便先看畫面
+  var DEMO = (NOT_SET || /[?&]demo\b/.test(location.search)) && window.DUTY_DEMO
+    ? window.DUTY_DEMO() : null;
+  var LS_KEY = 'pottery-duty:me';
+  var state = null;
+  var busy = false;
+
+  var $app   = document.getElementById('app');
+  var $me    = document.getElementById('me');
+  var $mine  = document.getElementById('mine');
+  var $who   = document.getElementById('whoBar');
+  var $toast = document.getElementById('toast');
+
+  // ── 工具 ────────────────────────────────
+  function esc(s) {
+    return String(s).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+  function md(dateStr) {                       // 2026-09-01 -> 9/1
+    var p = dateStr.split('-');
+    return Number(p[1]) + '/' + Number(p[2]);
+  }
+  function weekday(dateStr) {
+    var d = new Date(dateStr + 'T00:00:00+08:00');
+    return '日一二三四五六'[d.getDay()];
+  }
+  var toastTimer;
+  function toast(text, isErr) {
+    $toast.textContent = text;
+    $toast.className = 'toast show' + (isErr ? ' err' : '');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { $toast.className = 'toast'; }, isErr ? 4200 : 2200);
+  }
+  function myName() { return $me.value; }
+
+  // ── API ─────────────────────────────────
+  function call(action, payload) {
+    if (DEMO) return DEMO.call(action, payload);
+    var body = Object.assign({ action: action }, payload || {});
+    return fetch(API, {
+      method: 'POST',
+      // text/plain 屬於 CORS「簡單請求」，可避開 Apps Script 不支援的 preflight
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(body),
+      redirect: 'follow'
+    }).then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    });
+  }
+
+  // ── 畫面 ────────────────────────────────
+  function renderIdentity() {
+    var saved = localStorage.getItem(LS_KEY) || '';
+    var opts = ['<option value="">請選擇你的名字</option>'];
+    state.roster.forEach(function (n) {
+      opts.push('<option value="' + esc(n) + '"' + (n === saved ? ' selected' : '') + '>' + esc(n) + '</option>');
+    });
+    if (state.allowFreeName) {
+      var isOther = saved && state.roster.indexOf(saved) < 0;
+      if (isOther) opts.push('<option value="' + esc(saved) + '" selected>' + esc(saved) + '</option>');
+      opts.push('<option value="__other__">✎ 名單裡沒有我，自己輸入…</option>');
+    }
+    $me.innerHTML = opts.join('');
+    $who.hidden = false;
+    renderMine();
+  }
+
+  function renderMine() {
+    var n = myName();
+    if (!n) { $mine.innerHTML = '選好名字後，就可以直接點空位報名'; return; }
+    var c = state.counts[n] || 0;
+    var need = state.minPerPerson;
+    var mineWeeks = state.weeks.filter(function (w) {
+      return w.needsDuty && w.slots.indexOf(n) >= 0;
+    }).map(function (w) { return md(w.date); });
+
+    var pill = c >= need
+      ? '<span class="pill ok">已達標 ' + c + '/' + need + '</span>'
+      : '<span class="pill warn">還差 ' + (need - c) + ' 次</span>';
+
+    $mine.innerHTML = '<b>' + esc(n) + '</b> ' + pill +
+      (mineWeeks.length ? '　我的日期：' + mineWeeks.join('、') : '　尚未排任何日期');
+  }
+
+  function render() {
+    document.getElementById('title').textContent = state.className;
+    document.getElementById('subtitle').textContent =
+      state.semester + '　值日生排班（每週 ' + state.perWeek + ' 人，每人至少 ' + state.minPerPerson + ' 次）';
+
+    var html = [];
+
+    // 本週橫幅
+    var cur = null;
+    for (var i = 0; i < state.weeks.length; i++) {
+      if (state.weeks[i].no === state.currentWeekNo) { cur = state.weeks[i]; break; }
+    }
+    if (cur) {
+      var names = cur.slots.filter(Boolean);
+      html.push(
+        '<div class="banner">' +
+          '<div class="t">' + (cur.date === state.today ? '今天' : '下一堂課') + '</div>' +
+          '<div class="n">' + (
+            !cur.needsDuty ? (esc(cur.label || '停課') + '　不用排值日生')
+            : names.length ? esc(names.join('、'))
+            : '還沒有人登記 🙋'
+          ) + '</div>' +
+          '<div class="d">' + cur.date + '（' + weekday(cur.date) + '）第 ' + cur.no + '/' + state.weeks.length + ' 堂</div>' +
+        '</div>'
+      );
+    }
+
+    if (state.demo) {
+      html.push('<div class="banner" style="border-left-color:var(--warn)">' +
+        '<div class="t">展示模式</div>' +
+        '<div class="n">這是假資料，可以隨意點</div>' +
+        '<div class="d">所有操作只留在這台裝置的記憶體裡，重新整理就會還原。' +
+        '把 Apps Script 網址填進 <code>docs/config.js</code> 後就會連上真正的試算表。</div></div>');
+    }
+
+    if (!state.open) {
+      html.push('<div class="banner" style="border-left-color:var(--warn)"><div class="n">排班已鎖定</div>' +
+        '<div class="d">班長已關閉線上異動，如需換班請直接聯絡班長。</div></div>');
+    }
+
+    // 週次列表
+    html.push('<div class="sec">全學期 ' + state.weeks.length + ' 堂</div>');
+    state.weeks.forEach(function (w) { html.push(weekCard(w)); });
+
+    // 進度
+    html.push(statsBlock());
+
+    $app.innerHTML = html.join('');
+    document.getElementById('foot').textContent = '資料同步於 Google 試算表　·　最後更新 ' + new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function weekCard(w) {
+    var me = myName();
+    var past = w.date < state.today;
+    var cls = ['week'];
+    if (w.no === state.currentWeekNo) cls.push('now');
+    if (past) cls.push('past');
+    if (!w.needsDuty) cls.push('off');
+
+    var head =
+      '<div class="week-head">' +
+        '<span class="date">' + md(w.date) + '</span>' +
+        '<span class="meta">（' + weekday(w.date) + '）第 ' + w.no + ' 堂' + (w.label ? '・' + esc(w.label) : '') + '</span>';
+
+    if (!w.needsDuty) {
+      return '<div class="' + cls.join(' ') + '">' + head +
+        '<span class="tag">不用排值日生</span></div></div>';
+    }
+
+    var filled = w.slots.filter(Boolean).length;
+    var tagCls = filled >= state.perWeek ? 'tag full' : (filled === 0 ? 'tag need' : 'tag');
+    head += '<span class="' + tagCls + '">' + filled + '/' + state.perWeek + '</span></div>';
+
+    var slots = w.slots.map(function (n, i) {
+      if (n) {
+        var isSelf = me && n === me;
+        if (isSelf && state.open && !past) {
+          return '<button class="slot self" data-act="cancel" data-week="' + w.no + '">' +
+                 esc(n) + '<span class="x">取消</span></button>';
+        }
+        return '<div class="slot filled' + (isSelf ? ' self' : '') + '">' + esc(n) + '</div>';
+      }
+      if (past || !state.open) return '<div class="slot empty" disabled>—</div>';
+      return '<button class="slot empty" data-act="signup" data-week="' + w.no + '">＋ 我要值日</button>';
+    }).join('');
+
+    return '<div class="' + cls.join(' ') + '">' + head + '<div class="slots">' + slots + '</div></div>';
+  }
+
+  function statsBlock() {
+    var upcoming = state.weeks.filter(function (w) { return w.needsDuty && w.date >= state.today; });
+    var short = upcoming.filter(function (w) { return w.slots.filter(Boolean).length < state.perWeek; });
+
+    var totalSlots = state.weeks.reduce(function (a, w) { return a + (w.needsDuty ? state.perWeek : 0); }, 0);
+    var usedSlots = state.weeks.reduce(function (a, w) {
+      return a + (w.needsDuty ? w.slots.filter(Boolean).length : 0);
+    }, 0);
+    var pct = totalSlots ? Math.round(usedSlots / totalSlots * 100) : 0;
+
+    var under = state.roster.filter(function (n) { return (state.counts[n] || 0) < state.minPerPerson; });
+
+    var h = ['<div class="sec">排班進度</div><div class="stat">'];
+    h.push('<h2>已排 ' + usedSlots + ' / ' + totalSlots + ' 個名額（' + pct + '%）</h2>');
+    h.push('<div class="bar"><i style="width:' + pct + '%"></i></div>');
+    h.push('<div class="meta" style="font-size:13px;color:var(--muted)">未來還有 ' + short.length + ' 堂缺人' +
+           (short.length ? '：' + short.map(function (w) { return md(w.date); }).join('、') : '') + '</div>');
+
+    if (under.length) {
+      h.push('<h2 style="margin-top:14px">還沒排滿 ' + state.minPerPerson + ' 次（' + under.length + ' 位）</h2>');
+      h.push('<div class="names">' + under.map(function (n) {
+        return '<span class="name">' + esc(n) + ' ' + (state.counts[n] || 0) + '</span>';
+      }).join('') + '</div>');
+    } else if (state.roster.length) {
+      h.push('<h2 style="margin-top:14px">全班都已達標 🎉</h2>');
+    }
+    h.push('</div>');
+    return h.join('');
+  }
+
+  // ── 事件 ────────────────────────────────
+  $app.addEventListener('click', function (e) {
+    var btn = e.target.closest('button.slot');
+    if (!btn || busy) return;
+    var name = myName();
+    if (!name) { toast('請先在上方選擇你的名字', true); $me.focus(); return; }
+
+    var act = btn.dataset.act;
+    var week = Number(btn.dataset.week);
+
+    if (act === 'cancel' && !confirm('確定要取消這一天的值日生嗎？')) return;
+
+    busy = true;
+    $app.classList.add('busy');
+    call(act, { name: name, week: week })
+      .then(function (res) {
+        if (!res.ok) { toast(res.error || '操作失敗', true); return; }
+        state = res;
+        render();
+        renderMine();
+        toast(res.message || '完成');
+      })
+      .catch(function (err) { toast('連線失敗：' + err.message, true); })
+      .finally(function () { busy = false; $app.classList.remove('busy'); });
+  });
+
+  $me.addEventListener('change', function () {
+    if ($me.value === '__other__') {
+      var typed = (prompt('請輸入你的名字（會直接寫進排班表，請填全名）') || '').trim();
+      if (!typed) { $me.value = localStorage.getItem(LS_KEY) || ''; return; }
+      var opt = document.createElement('option');
+      opt.value = opt.textContent = typed;
+      $me.insertBefore(opt, $me.lastElementChild);
+      $me.value = typed;
+    }
+    localStorage.setItem(LS_KEY, $me.value);
+    renderMine();
+    render();
+  });
+
+  // ── 啟動 ────────────────────────────────
+  if (NOT_SET && !DEMO) {
+    $app.innerHTML = '<div class="msg">尚未設定後端網址。<br>請編輯 <code>docs/config.js</code>，' +
+      '把 Apps Script 的網頁應用程式網址填進去。</div>';
+    return;
+  }
+
+  call('read')
+    .then(function (res) {
+      if (!res.ok) throw new Error(res.error || '讀取失敗');
+      state = res;
+      renderIdentity();
+      render();
+    })
+    .catch(function (err) {
+      $app.innerHTML = '<div class="msg">載入失敗：' + esc(err.message) +
+        '<br><br>請確認 Apps Script 已部署為「網頁應用程式」，<br>且存取權設定為「所有人」。</div>';
+    });
+})();
+</script>
+</body>
+</html>
