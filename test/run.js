@@ -352,6 +352,83 @@ t('新學期可以正常報名', () => {
 });
 
 // ===========================================================================
+section('直接在「排班表」上手改（不重建，網頁立刻生效）');
+
+const sched = () => ss.getSheetByName('排班表');
+const rowOf = no => no + 1;                       // 第 no 堂在試算表的第幾列
+
+t('手改「說明」欄，網頁立刻看得到', () => {
+  sched().getRange(rowOf(3), 3).setValue('校外教學');
+  eq(weekOf(buildState_(), 3).label, '校外教學');
+});
+
+t('手動取消勾選「需排值日生」，該堂就變成不用排', () => {
+  mutate_('signup', '高淑梅', 3);
+  mutate_('signup', '宓敦', 3);
+  eq(weekOf(buildState_(), 3).slots.filter(Boolean), ['高淑梅', '宓敦']);
+
+  sched().getRange(rowOf(3), 4).setValue(false);
+  const w = weekOf(buildState_(), 3);
+  eq(w.needsDuty, false);
+  eq(buildState_().counts['高淑梅'], 0, '不排班的堂次不該計入次數');
+});
+
+t('取消勾選不會刪掉原本排的人', () => {
+  eq(sched().getRange(rowOf(3), 5, 1, 3).getValues()[0], ['高淑梅', '宓敦', ''],
+     '名字應該還留在儲存格裡');
+});
+
+t('重新勾選回來，人和次數都回來', () => {
+  sched().getRange(rowOf(3), 4).setValue(true);
+  const st = buildState_();
+  eq(weekOf(st, 3).slots.filter(Boolean), ['高淑梅', '宓敦']);
+  eq(st.counts['高淑梅'], 1);
+});
+
+t('不排班的堂次擋下報名', () => {
+  sched().getRange(rowOf(4), 4).setValue(false);
+  sched().getRange(rowOf(4), 3).setValue('停課');
+  errIncludes(mutate_('signup', '李築善', 4), '不用排值日生');
+  sched().getRange(rowOf(4), 4).setValue(true);
+  sched().getRange(rowOf(4), 3).setValue('');
+});
+
+t('手改日期（補課調到別天）立刻生效', () => {
+  sched().getRange(rowOf(5), 2).setValue('2027-03-18');
+  const w = weekOf(buildState_(), 5);
+  eq(w.date, '2027-03-18');
+  ok(mutate_('signup', '李築善', 5).ok, '改過日期的堂次仍可報名');
+});
+
+t('手動加一列就多一堂課', () => {
+  const last = buildState_().weeks.length;
+  sched().appendRow([last + 1, '2027-06-22', '補課', true, '', '', '']);
+  const st = buildState_();
+  eq(st.weeks.length, last + 1);
+  eq(st.weeks[last].date, '2027-06-22');
+  ok(mutate_('signup', '顏淑琦', last + 1).ok, '新加的一堂應該可以報名');
+});
+
+section('手改 vs. 特殊安排：重建後誰說了算');
+
+t('手改「排班表」的說明，重建後會被蓋掉', () => {
+  sched().getRange(rowOf(3), 3).setValue('校外教學');
+  eq(weekOf(buildState_(), 3).label, '校外教學');
+  rebuildSchedule();
+  eq(weekOf(buildState_(), 3).label, '', '重建是依「特殊安排」重寫，手改的說明不會留下');
+});
+
+t('寫進「特殊安排」才會永久生效', () => {
+  const date = buildState_().weeks[2].date;          // 第 3 堂的日期
+  ss.getSheetByName('特殊安排').appendRow([date, '校外教學', false]);
+  rebuildSchedule();
+  const w = weekOf(buildState_(), 3);
+  eq([w.label, w.needsDuty], ['校外教學', false]);
+  rebuildSchedule();
+  eq(weekOf(buildState_(), 3).label, '校外教學', '再重建幾次都還在');
+});
+
+// ===========================================================================
 section('API 進入點');
 const post = b => JSON.parse(doPost({ postData: { contents: JSON.stringify(b) } }));
 t('read 可用', () => eq(post({ action: 'read' }).weeks.length, 18));
