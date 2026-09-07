@@ -418,6 +418,21 @@ t('手改「排班表」的說明，重建後會被蓋掉', () => {
   eq(weekOf(buildState_(), 3).label, '', '重建是依「特殊安排」重寫，手改的說明不會留下');
 });
 
+t('「特殊安排」日期打錯（對不到任何一堂課）會被明確提醒', () => {
+  ss.getSheetByName('特殊安排').appendRow(['2027-12-25', '打錯的日期', false]);
+  dialogs.length = 0;
+  ui.answer = 'CANCEL';
+  rebuildSchedule();
+  ui.answer = 'OK';
+  const msg = dialogs[0].msg;
+  ok(msg.includes('對不到任何一堂課'), msg);
+  ok(msg.includes('2027-12-25（打錯的日期）'), msg);
+});
+t('打錯的日期不會影響重建結果', () => {
+  const out = generateSchedule_();
+  ok(out.ignoredSpecial.some(d => d.includes('2027-12-25')), JSON.stringify(out.ignoredSpecial));
+  eq(buildState_().weeks.length, 18, '堂數不該被影響');
+});
 t('寫進「特殊安排」才會永久生效', () => {
   const date = buildState_().weeks[2].date;          // 第 3 堂的日期
   ss.getSheetByName('特殊安排').appendRow([date, '校外教學', false]);

@@ -356,7 +356,17 @@ function previewRebuild_() {
     if (!inRange[d]) cleared.push(d + '（' + old[d].join('、') + '）不在新學期範圍內');
   });
 
-  return { cfg: cfg, dates: dates, kept: kept, cleared: cleared, hadAny: Object.keys(old).length > 0 };
+  // 「特殊安排」的日期必須和某一堂課完全相同才對得上，打錯了會整列失效，
+  // 所以先挑出來提醒，否則班長會以為設定好了、其實沒生效。
+  var ignoredSpecial = [];
+  Object.keys(special).forEach(function (d) {
+    if (!inRange[d]) ignoredSpecial.push(d + '（' + (special[d].label || '無說明') + '）');
+  });
+
+  return {
+    cfg: cfg, dates: dates, kept: kept, cleared: cleared,
+    ignoredSpecial: ignoredSpecial, hadAny: Object.keys(old).length > 0
+  };
 }
 
 /** 把目前的排班表另存一份，命名為「排班表 備份 MMDD-HHmm」 */
@@ -409,6 +419,13 @@ function rebuildSchedule() {
     msg.push('');
     msg.push('動手前會自動把目前的排班表另存一份備份，按錯了也救得回來。');
   }
+  if (p.ignoredSpecial.length) {
+    msg.push('');
+    msg.push('⚠「特殊安排」有 ' + p.ignoredSpecial.length + ' 筆日期對不到任何一堂課，會被忽略：');
+    p.ignoredSpecial.slice(0, 8).forEach(function (c) { msg.push('　' + c); });
+    msg.push('　（日期要和排班表上的某一堂完全相同才會生效）');
+  }
+
   msg.push('');
   msg.push('確定要重建嗎？');
 
@@ -449,9 +466,10 @@ function generateSchedule_() {
 
     // 2. 產生新的日期清單
     var special = getSpecial_();
-    var plan = [];
+    var plan = [], inRange2 = {};
     for (var i = 0; i < cfg.totalLessons; i++) {
       var date = addDays_(cfg.firstDate, 7 * i);
+      inRange2[date] = true;
       plan.push({
         no: i + 1,
         date: date,
@@ -525,6 +543,11 @@ function generateSchedule_() {
       '每週值日生：' + cfg.perWeek + ' 人',
       '不排值日生的日期：' + (dates.filter(function (d) { return special[d] && !special[d].needsDuty; }).join('、') || '無')
     ];
+    var ignoredSpecial = [];
+    Object.keys(special).forEach(function (d) {
+      if (!inRange2[d]) ignoredSpecial.push(d + '（' + (special[d].label || '無說明') + '）');
+    });
+    if (ignoredSpecial.length) lines.push('⚠「特殊安排」有 ' + ignoredSpecial.length + ' 筆日期對不到課，已忽略：' + ignoredSpecial.join('、'));
     if (movedToOff.length) lines.push('⚠ 因改為「不排值日生」而清空的排班：' + movedToOff.join('、'));
     if (truncated.length)  lines.push('⚠ 因每週人數調少而移除的排班：' + truncated.join('、'));
     if (dropped.length)    lines.push('⚠ 已不在學期內、無法對應而遺失的排班：' + dropped.join('、'));
@@ -532,7 +555,8 @@ function generateSchedule_() {
 
     appendLog_('重建排班表', '', '', '', lines.join(' / '));
     SpreadsheetApp.flush();
-    return { summary: lines.join('\n'), dropped: dropped, movedToOff: movedToOff, truncated: truncated };
+    return { summary: lines.join('\n'), dropped: dropped, movedToOff: movedToOff,
+             truncated: truncated, ignoredSpecial: ignoredSpecial };
 
   } finally {
     lock.releaseLock();
