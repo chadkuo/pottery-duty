@@ -1,16 +1,25 @@
-const fs = require('fs'), path = require('path');
+/**
+ * 前端渲染與互動測試（jsdom，跑在展示模式下）。
+ *   npm install && node test/render.js
+ */
+const fs = require('fs'), path = require('path'), http = require('http');
 const { JSDOM, VirtualConsole } = require('jsdom');
 const DOCS = path.join(__dirname, '..', 'docs');
 
 const vc = new VirtualConsole();
 vc.on('jsdomError', e => { if (!/Could not parse CSS/.test(e.message)) console.log('[jsdomError]', e.message); });
-vc.on('error', (...a) => console.log('[err]', ...a));
 
 let pass = 0, fail = 0;
-const t = (n, fn) => { try { fn(); console.log('  ✅', n); pass++; } catch (e) { console.log('  ❌', n, '→', e.message); fail++; } };
-const assert = (c, m) => { if (!c) throw new Error(m || 'assertion failed'); };
+const section = n => console.log('\n▍' + n);
+const t = (name, fn) => {
+  try { fn(); console.log('  ✅', name); pass++; }
+  catch (e) { console.log('  ❌', name, '→', e.message); fail++; }
+};
+const ok = (c, m) => { if (!c) throw new Error(m || '不成立'); };
+const eq = (a, b, m) => {
+  if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error(`${m ? m + ' ' : ''}期望 ${JSON.stringify(b)}，實得 ${JSON.stringify(a)}`);
+};
 
-const http = require('http');
 const MIME = { '.html': 'text/html', '.js': 'text/javascript' };
 const server = http.createServer((req, res) => {
   const f = path.join(DOCS, req.url === '/' ? 'index.html' : decodeURIComponent(req.url.split('?')[0]));
@@ -18,87 +27,153 @@ const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': MIME[path.extname(f)] || 'text/plain' });
   res.end(fs.readFileSync(f));
 }).listen(0);
-const PORT = server.address().port;
 
 const dom = new JSDOM(fs.readFileSync(path.join(DOCS, 'index.html'), 'utf8'), {
-  url: 'http://localhost:' + PORT + '/',
+  url: 'http://localhost:' + server.address().port + '/',
   runScripts: 'dangerously', resources: 'usable', pretendToBeVisual: true, virtualConsole: vc,
 });
 const { window } = dom;
 const $ = s => window.document.querySelector(s);
 const $$ = s => [...window.document.querySelectorAll(s)];
+const card = n => $$('.week')[n - 1];                       // 第 n 堂
+const btns = el => [...el.querySelectorAll('button[data-act]')].map(b => b.dataset.act + ':' + b.textContent.trim());
+const acts = el => btns(el.querySelector('.acts') || el.ownerDocument.createElement('div'));
+const txt = el => el.textContent.replace(/\s+/g, ' ').trim();   // 比對時忽略排版空白
+const click = el => { ok(el, '按鈕不存在'); el.dispatchEvent(new window.MouseEvent('click', { bubbles: true })); };
+const pick = name => { $('#me').value = name; $('#me').dispatchEvent(new window.Event('change')); };
+const wait = ms => new Promise(r => setTimeout(r, ms));
 
-setTimeout(() => {
-  console.log('\n▍展示模式啟動');
-  t('標題來自假資料', () => assert($('#title').textContent === '大同週二拉坏班', $('#title').textContent));
-  t('副標顯示規則', () => assert(/每週 3 人.*至少 2 次/.test($('#subtitle').textContent), $('#subtitle').textContent));
-  t('顯示展示模式橫幅', () => assert($$('.banner').some(b => b.textContent.includes('這是假資料，可以隨意點')),
-      '橫幅：' + $$('.banner').map(b => b.textContent.trim()).join(' | ')));
+window.confirm = () => true;
+let promptAnswer = '';
+window.prompt = () => promptAnswer;
 
-  console.log('\n▍身分選單');
-  t('選單有 8 位同學 + 提示 + 自行輸入', () => assert($$('#me option').length === 10, '實得 ' + $$('#me option').length));
-  t('包含錢芸惠', () => assert($$('#me option').some(o => o.value === '錢芸惠')));
+(async () => {
+  await wait(700);
 
-  console.log('\n▍週次卡片');
-  t('渲染 18 張卡片', () => assert($$('.week').length === 18, '實得 ' + $$('.week').length));
-  t('公民週標為不用排', () => {
-    const c = $$('.week')[8];
-    assert(c.classList.contains('off') && c.textContent.includes('不用排值日生'), c.textContent.trim());
+  section('載入與版面');
+  t('標題與副標來自設定', () => {
+    eq($('#title').textContent, '大同週二拉坏班');
+    const sub = $('#subtitle').textContent;
+    ok(sub.includes('每週二 14:00–17:00'), sub);
+    ok(sub.includes('共 18 堂'), sub);
+    ok(sub.includes('值日生 3 人／每人至少 2 次'), sub);
   });
-  t('第 1 週顯示三個名字', () => {
-    const c = $$('.week')[0];
-    ['錢芸惠', '俞光彥', '李築善'].forEach(n => assert(c.textContent.includes(n), '缺 ' + n));
+  t('渲染 18 張卡片', () => eq($$('.week').length, 18));
+  t('下一堂課橫幅指向 9/8', () => {
+    const b = $$('.banner').find(b => b.textContent.includes('下一堂課'));
+    ok(b, '找不到下一堂課橫幅');
+    ok(b.textContent.includes('錢芸惠、志平、宓敦'), b.textContent);
+    ok(b.textContent.includes('2026-09-08'), b.textContent);
   });
-  t('第 1 週標 3/3', () => assert($$('.week')[0].querySelector('.tag').textContent === '3/3'));
-  t('第 5 週標 0/3 且有 3 個報名鈕', () => {
-    const c = $$('.week')[4];
-    assert(c.querySelector('.tag').textContent === '0/3');
-    assert(c.querySelectorAll('button[data-act="signup"]').length === 3);
+  t('停課週標示且無按鈕', () => {
+    ok(card(9).textContent.includes('社大公民週'));
+    ok(card(9).textContent.includes('不用排值日生'));
+    eq(btns(card(9)), []);
+    eq(btns(card(18)), []);
   });
-  t('停課週沒有任何按鈕', () => {
-    assert($$('.week')[8].querySelectorAll('button').length === 0);
-    assert($$('.week')[17].querySelectorAll('button').length === 0);
+  t('已過去的第 1 堂不可操作', () => eq(btns(card(1)), []));
+  t('未選名字時卡片沒有操作列', () => eq(card(5).querySelectorAll('.acts').length, 0));
+
+  section('報名');
+  pick('顏淑琦');
+  t('顯示個人狀態', () => ok(/顏淑琦.*還差 1 次/.test($('#mine').textContent), $('#mine').textContent));
+  t('第 7 堂有 3 個報名鈕', () => eq(card(7).querySelectorAll('button[data-act="signup"]').length, 3));
+  click(card(7).querySelector('button[data-act="signup"]'));
+  await wait(60);
+  t('名字寫入第 7 堂', () => ok(card(7).textContent.includes('顏淑琦'), card(7).textContent.trim()));
+  t('計數變 1/3', () => eq(card(7).querySelector('.tag').textContent, '1/3'));
+  t('個人狀態變已達標', () => ok(/已達標 2\/2/.test($('#mine').textContent), $('#mine').textContent));
+  t('出現取消與找代班按鈕', () => eq(acts(card(7)), ['cancel:取消排班', 'requestSub:我不能到，找人代班']));
+  t('名字記進 localStorage', () => eq(window.localStorage.getItem('pottery-duty:me'), '顏淑琦'));
+
+  section('額滿保護');
+  pick('石惠禎'); click(card(7).querySelector('button[data-act="signup"]')); await wait(60);
+  pick('李築善'); click(card(7).querySelector('button[data-act="signup"]')); await wait(60);
+  t('第 7 堂已滿 3/3', () => eq(card(7).querySelector('.tag').textContent, '3/3'));
+  t('滿了就沒有報名鈕', () => eq(card(7).querySelectorAll('button[data-act="signup"]').length, 0));
+
+  section('代班：徵求');
+  pick('高淑梅');
+  t('第 4 堂顯示自己可操作', () => eq(acts(card(4)), ['cancel:取消排班', 'requestSub:我不能到，找人代班']));
+  promptAnswer = '臨時要看醫生';
+  click(card(4).querySelector('button[data-act="requestSub"]'));
+  await wait(60);
+  t('格子標為徵求代班中', () => {
+    const slot = [...card(4).querySelectorAll('.slot')].find(s => s.textContent.includes('高淑梅'));
+    ok(slot.classList.contains('pending'), slot.className);
+    ok(slot.textContent.includes('徵求代班中'), slot.textContent);
+  });
+  t('自己看到的是「取消徵求」', () => eq(acts(card(4)), ['cancelSub:我可以到了，取消徵求']));
+  t('頂部出現求救橫幅', () => {
+    const b = $$('.banner').find(b => b.textContent.includes('徵求代班'));
+    ok(b, '找不到徵求代班橫幅');
+    ok(txt(b).includes('有 1 個班需要人接手'), txt(b));
+    ok(txt(b).includes('高淑梅（你） 無法出席'), txt(b));
+    ok(txt(b).includes('9/22（二）'), txt(b));
   });
 
-  console.log('\n▍進度區');
-  t('顯示已排名額比例', () => {
+  section('代班：認領');
+  pick('宓敦');
+  t('已排在同一天的人看不到「我來代」', () => eq(acts(card(4)).filter(b => b.startsWith('claimSub')), []));
+  pick('顏淑琦');
+  t('其他同學看得到「我來代 高淑梅」', () => ok(acts(card(4)).includes('claimSub:我來代 高淑梅'), JSON.stringify(acts(card(4)))));
+  t('橫幅也有認領按鈕', () => {
+    const b = $$('.banner').find(b => b.textContent.includes('徵求代班'));
+    ok(b.querySelector('button[data-act="claimSub"]'), '橫幅缺少認領按鈕');
+  });
+  click($$('.banner').find(b => b.textContent.includes('徵求代班')).querySelector('button[data-act="claimSub"]'));
+  await wait(60);
+  t('第 4 堂的高淑梅換成顏淑琦', () => {
+    const names = [...card(4).querySelectorAll('.slot')].map(s => s.textContent.trim());
+    ok(names.includes('顏淑琦'), JSON.stringify(names));
+    ok(!names.some(n => n.includes('高淑梅')), JSON.stringify(names));
+  });
+  t('求救橫幅消失', () => ok(!$$('.banner').some(b => b.textContent.includes('有 1 個班需要人接手'))));
+  t('顯示成功訊息', () => ok($('#toast').textContent.includes('你代了 高淑梅'), $('#toast').textContent));
+
+  section('代班：取消徵求');
+  pick('石惠禎');
+  promptAnswer = '';
+  click(card(6).querySelector('button[data-act="requestSub"]'));
+  await wait(60);
+  t('徵求成立', () => ok($$('.banner').some(b => txt(b).includes('石惠禎（你） 無法出席')),
+      $$('.banner').map(txt).join(' || ')));
+  click(card(6).querySelector('button[data-act="cancelSub"]'));
+  await wait(60);
+  t('取消後回到一般狀態', () => eq(acts(card(6)), ['cancel:取消排班', 'requestSub:我不能到，找人代班']));
+  t('求救橫幅消失', () => ok(!$$('.banner').some(b => txt(b).includes('無法出席'))));
+
+  section('自行加入名單');
+  promptAnswer = '新同學丙';
+  pick('__other__');
+  await wait(60);
+  t('新名字加入下拉選單', () => ok($$('#me option').some(o => o.value === '新同學丙'), '選單無新同學丙'));
+  t('自動選為目前身分', () => eq($('#me').value, '新同學丙'));
+  t('可以直接報名', () => {
+    click(card(11).querySelector('button[data-act="signup"]'));
+  });
+  await wait(60);
+  t('名字出現在第 11 堂', () => ok(card(11).textContent.includes('新同學丙'), card(11).textContent.trim()));
+
+  section('防呆');
+  pick('');
+  click(card(12).querySelector('button[data-act="signup"]'));
+  await wait(60);
+  t('未選名字時提示', () => ok($('#toast').textContent.includes('請先在上方選擇你的名字'), $('#toast').textContent));
+  t('沒有誤寫入', () => eq(card(12).querySelector('.tag').textContent, '0/3'));
+
+  section('進度統計');
+  t('顯示名額比例', () => {
     const h = $$('.stat h2').map(e => e.textContent).join(' | ');
-    assert(/已排 18 \/ 48 個名額（38%）/.test(h), h);   // 16 個上課週 × 3 = 48 格，截圖已填 18 格
+    ok(/已排 \d+ \/ 48 個名額/.test(h), h);   // 16 個上課週 × 3 = 48 格
   });
   t('列出未達 2 次的同學', () => {
     const names = $$('.name').map(e => e.textContent.trim());
-    assert(names.some(n => n.startsWith('李築善')), JSON.stringify(names));
-    assert(!names.some(n => n.startsWith('錢芸惠')), '錢芸惠已 3 次不該出現');
+    ok(names.length > 0, '未達標名單不該是空的');
+    ok(!names.some(n => n.startsWith('錢芸惠')), '錢芸惠已 3 次不該出現');
   });
 
-  console.log('\n▍互動：報名');
-  const me = $('#me');
-  me.value = '李築善';
-  me.dispatchEvent(new window.Event('change'));
-  t('選好名字後顯示個人狀態', () => assert(/李築善.*還差 1 次/.test($('#mine').textContent), $('#mine').textContent));
-
-  const btn = $$('.week')[4].querySelector('button[data-act="signup"]');
-  btn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-
-  setTimeout(() => {
-    t('點擊後名字出現在第 5 週', () => assert($$('.week')[4].textContent.includes('李築善'), $$('.week')[4].textContent.trim()));
-    t('第 5 週變成 1/3', () => assert($$('.week')[4].querySelector('.tag').textContent === '1/3'));
-    t('個人狀態更新為已達標', () => assert(/已達標 2\/2/.test($('#mine').textContent), $('#mine').textContent));
-    t('自己的格子變成可取消', () => assert($$('.week')[4].querySelector('button[data-act="cancel"]') !== null));
-    t('未達標名單少一人', () => assert(!$$('.name').map(e => e.textContent).some(n => n.startsWith('李築善'))));
-    t('顯示成功提示', () => assert($('#toast').textContent.includes('已排定'), $('#toast').textContent));
-    t('名字記進 localStorage', () => assert(window.localStorage.getItem('pottery-duty:me') === '李築善'));
-
-    console.log('\n▍互動：未選名字就報名');
-    me.value = ''; me.dispatchEvent(new window.Event('change'));
-    setTimeout(() => {
-      $$('.week')[6].querySelector('button[data-act="signup"]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-      setTimeout(() => {
-        t('提示先選名字', () => assert($('#toast').textContent.includes('請先在上方選擇你的名字'), $('#toast').textContent));
-        t('沒有誤寫入任何人', () => assert($$('.week')[6].querySelector('.tag').textContent === '0/3'));
-        console.log(`\n=== ${pass} 通過 / ${fail} 失敗 ===`);
-        server.close(); process.exit(fail ? 1 : 0);
-      }, 80);
-    }, 80);
-  }, 120);
-}, 700);
+  console.log(`\n=== ${pass} 通過 / ${fail} 失敗 ===`);
+  server.close();
+  process.exit(fail ? 1 : 0);
+})();

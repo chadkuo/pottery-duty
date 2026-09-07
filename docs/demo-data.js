@@ -1,42 +1,69 @@
 /**
- * 展示模式用的假資料。
+ * 展示模式：把後端的行為在瀏覽器裡重現一份，用假資料跑。
  * 當 config.js 尚未填入後端網址，或網址後面加上 ?demo 時啟用。
- * 這個模式下所有操作只存在瀏覽器記憶體裡，重新整理就會還原，不會寫進試算表。
+ * 所有操作只存在記憶體裡，重新整理就還原，不會寫進任何試算表。
  */
 window.DUTY_DEMO = function () {
-  var perWeek = 3, minPerPerson = 2;
-  var seed = [
-    [1,  '2026-09-01', '', true,  ['錢芸惠', '俞光彥', '李築善']],
-    [2,  '2026-09-08', '', true,  ['錢芸惠', '志平', '宓敦']],
-    [3,  '2026-09-15', '', true,  ['錢芸惠', '志平', '宓敦']],
-    [4,  '2026-09-22', '', true,  ['志平', '宓敦', '高淑梅']],
-    [5,  '2026-09-29', '', true,  []],
-    [6,  '2026-10-06', '', true,  ['石惠禎', '高淑梅', '顏淑琦']],
-    [7,  '2026-10-13', '', true,  []],
-    [8,  '2026-10-20', '', true,  []],
-    [9,  '2026-10-27', '社大公民週', false, []],
-    [10, '2026-11-03', '', true,  ['俞光彥', '石惠禎', '高淑梅']],
-    [11, '2026-11-10', '', true,  []],
-    [12, '2026-11-17', '', true,  []],
-    [13, '2026-11-24', '', true,  []],
-    [14, '2026-12-01', '', true,  []],
-    [15, '2026-12-08', '', true,  []],
-    [16, '2026-12-15', '', true,  []],
-    [17, '2026-12-22', '', true,  []],
-    [18, '2026-12-29', '吃好料的時光', false, []]
-  ];
+  // ── 對應試算表「設定」 ────────────────────────────────
+  var cfg = {
+    className: '大同週二拉坏班',
+    semester: '2026 秋季班（展示模式）',
+    firstDate: '2026-09-01',
+    totalLessons: 18,
+    classTime: '14:00–17:00',
+    perWeek: 3,
+    minPerPerson: 2,
+    allowFreeName: true,
+    open: true,
+    subsOpen: true
+  };
+  // ── 對應試算表「特殊安排」 ────────────────────────────
+  var special = {
+    '2026-10-27': { label: '社大公民週', needsDuty: false },
+    '2026-12-29': { label: '吃好料的時光', needsDuty: false }
+  };
+  // ── 對應試算表「學員名單」 ────────────────────────────
   var roster = ['錢芸惠', '俞光彥', '李築善', '志平', '宓敦', '高淑梅', '石惠禎', '顏淑琦'];
+  // ── LINE 上已排好的 ──────────────────────────────────
+  var initial = {
+    '2026-09-01': ['錢芸惠', '俞光彥', '李築善'],
+    '2026-09-08': ['錢芸惠', '志平', '宓敦'],
+    '2026-09-15': ['錢芸惠', '志平', '宓敦'],
+    '2026-09-22': ['志平', '宓敦', '高淑梅'],
+    '2026-10-06': ['石惠禎', '高淑梅', '顏淑琦'],
+    '2026-11-03': ['俞光彥', '石惠禎', '高淑梅']
+  };
 
-  var weeks = seed.map(function (r) {
-    var slots = [];
-    for (var i = 0; i < perWeek; i++) slots.push(r[4][i] || '');
-    return { no: r[0], date: r[1], label: r[2], needsDuty: r[3], slots: slots };
-  });
-
-  function today() {
-    var d = new Date();
-    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei' }).format(d);
+  function pad2(n) { return ('0' + n).slice(-2); }
+  function addDays(dateStr, n) {
+    var p = dateStr.split('-');
+    var d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2]));
+    d.setUTCDate(d.getUTCDate() + n);
+    return d.getUTCFullYear() + '-' + pad2(d.getUTCMonth() + 1) + '-' + pad2(d.getUTCDate());
   }
+  function weekdayCh(dateStr) {
+    var p = dateStr.split('-');
+    return '日一二三四五六'[new Date(Date.UTC(+p[0], +p[1] - 1, +p[2])).getUTCDay()];
+  }
+  function today() { return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei' }).format(new Date()); }
+  function mdText(d) { var p = d.split('-'); return +p[1] + '/' + +p[2]; }
+
+  // 依設定產生排班表，與後端 generateSchedule_ 同樣的規則
+  var weeks = [];
+  for (var i = 0; i < cfg.totalLessons; i++) {
+    var date = addDays(cfg.firstDate, 7 * i);
+    var sp = special[date] || { label: '', needsDuty: true };
+    var names = sp.needsDuty ? (initial[date] || []) : [];
+    var slots = [];
+    for (var s = 0; s < cfg.perWeek; s++) slots.push(names[s] || '');
+    weeks.push({ no: i + 1, date: date, label: sp.label, needsDuty: sp.needsDuty, slots: slots, subs: [] });
+  }
+
+  function byNo(no) {
+    for (var i = 0; i < weeks.length; i++) if (weeks[i].no === Number(no)) return weeks[i];
+    return null;
+  }
+  function fail(msg) { return Promise.resolve({ ok: false, error: msg }); }
 
   function state(message) {
     var counts = {};
@@ -49,39 +76,82 @@ window.DUTY_DEMO = function () {
     for (var i = 0; i < weeks.length; i++) { if (weeks[i].date >= t) { cur = weeks[i].no; break; } }
     return {
       ok: true, demo: true, message: message,
-      className: '大同週二拉坏班', semester: '2026 秋季班（展示模式）',
-      perWeek: perWeek, minPerPerson: minPerPerson,
-      allowFreeName: true, open: true,
+      className: cfg.className, semester: cfg.semester,
+      classTime: cfg.classTime, weekdayCh: weekdayCh(cfg.firstDate),
+      perWeek: cfg.perWeek, minPerPerson: cfg.minPerPerson,
+      allowFreeName: cfg.allowFreeName, open: cfg.open, subsOpen: cfg.subsOpen,
       today: t, currentWeekNo: cur,
-      roster: roster.slice(),
-      counts: counts,
+      roster: roster.slice(), counts: counts,
       weeks: JSON.parse(JSON.stringify(weeks))
     };
   }
 
+  function addToRoster(name) { if (roster.indexOf(name) < 0) roster.push(name); }
+
   function call(action, p) {
     p = p || {};
+    var name = String(p.name || '').trim();
     if (action === 'read') return Promise.resolve(state());
-    var w = null;
-    for (var i = 0; i < weeks.length; i++) if (weeks[i].no === Number(p.week)) w = weeks[i];
-    if (!w) return Promise.resolve({ ok: false, error: '找不到第 ' + p.week + ' 週' });
+
+    if (action === 'addMember') {
+      if (!name) return fail('請輸入名字');
+      var isNew = roster.indexOf(name) < 0;
+      addToRoster(name);
+      return Promise.resolve(state(isNew ? '已把「' + name + '」加入名單' : '「' + name + '」本來就在名單裡'));
+    }
+
+    var w = byNo(p.week);
+    if (!w) return fail('找不到第 ' + p.week + ' 週');
+    if (!name) return fail('請先選擇你的名字');
 
     if (action === 'signup') {
-      if (!w.needsDuty) return Promise.resolve({ ok: false, error: (w.label || '這一週') + '不用排值日生' });
-      if (w.slots.indexOf(p.name) >= 0) return Promise.resolve({ ok: false, error: '你已經排在 ' + w.date + ' 了' });
+      if (!w.needsDuty) return fail((w.label || '這一週') + '不用排值日生');
+      if (w.slots.indexOf(name) >= 0) return fail('你已經排在 ' + mdText(w.date) + ' 了');
       var free = w.slots.indexOf('');
-      if (free < 0) return Promise.resolve({ ok: false, error: w.date + ' 名額已滿，請改選其他日期' });
-      w.slots[free] = p.name;
-      if (roster.indexOf(p.name) < 0) roster.push(p.name);
-      return Promise.resolve(state('已排定 ' + w.date));
+      if (free < 0) return fail(mdText(w.date) + ' 名額已滿（' + w.slots.join('、') + '），請改選其他日期');
+      w.slots[free] = name;
+      addToRoster(name);
+      return Promise.resolve(state('已排定 ' + mdText(w.date)));
     }
+
     if (action === 'cancel') {
-      var idx = w.slots.indexOf(p.name);
-      if (idx < 0) return Promise.resolve({ ok: false, error: '你原本就沒有排在 ' + w.date });
+      var idx = w.slots.indexOf(name);
+      if (idx < 0) return fail('你原本就沒有排在 ' + mdText(w.date));
       w.slots[idx] = '';
-      return Promise.resolve(state('已取消 ' + w.date));
+      w.subs = w.subs.filter(function (n) { return n !== name; });
+      return Promise.resolve(state('已取消 ' + mdText(w.date)));
     }
-    return Promise.resolve({ ok: false, error: '未知的動作' });
+
+    if (action === 'requestSub') {
+      if (!cfg.subsOpen) return fail('班長已關閉代班功能，請直接聯絡班長');
+      if (w.slots.indexOf(name) < 0) return fail('你不是 ' + mdText(w.date) + ' 的值日生');
+      if (w.subs.indexOf(name) >= 0) return fail('你已經在徵求 ' + mdText(w.date) + ' 的代班了');
+      w.subs.push(name);
+      return Promise.resolve(state('已公開徵求 ' + mdText(w.date) + ' 的代班'));
+    }
+
+    if (action === 'cancelSub') {
+      if (w.subs.indexOf(name) < 0) return fail('找不到你的代班徵求（可能已經有人接手了）');
+      w.subs = w.subs.filter(function (n) { return n !== name; });
+      return Promise.resolve(state('已取消 ' + mdText(w.date) + ' 的代班徵求'));
+    }
+
+    if (action === 'claimSub') {
+      var original = String(p.original || '').trim();
+      if (!cfg.subsOpen) return fail('班長已關閉代班功能，請直接聯絡班長');
+      if (!original) return fail('缺少原值日生');
+      if (name === original) return fail('不能代自己的班，若可以到請按「取消徵求」');
+      if (w.slots.indexOf(name) >= 0) return fail('你本來就排在 ' + mdText(w.date) + '，不需要代班');
+      if (w.subs.indexOf(original) < 0) return fail('這筆代班已經被別人接走了，請重新整理看看');
+      var at = w.slots.indexOf(original);
+      if (at < 0) return fail(original + ' 已經不在 ' + mdText(w.date) + ' 的名單上了');
+      w.slots[at] = name;
+      w.subs = w.subs.filter(function (n) { return n !== original; });
+      addToRoster(name);
+      return Promise.resolve(state('感謝！你代了 ' + original + ' 的 ' + mdText(w.date)));
+    }
+
+    return fail('未知的動作');
   }
 
   return { call: call };

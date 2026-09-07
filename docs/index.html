@@ -3,13 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#7a5c3e">
+<meta name="theme-color" content="#8a6544">
 <title>陶藝班值日生排班</title>
 <style>
 :root{
   --bg:#faf7f3; --card:#ffffff; --ink:#2c2521; --muted:#7c6f66;
   --line:#e6ded5; --brand:#8a6544; --brand-ink:#ffffff;
-  --ok:#2e7d5b; --ok-bg:#e6f4ed; --warn:#a8631a; --warn-bg:#fdf1e2;
+  --ok:#2e7d5b; --ok-bg:#e6f4ed;
+  --warn:#a8631a; --warn-bg:#fdf1e2; --warn-line:#e8c99a;
   --me:#3f6ea8; --me-bg:#e8f0fa; --off:#efe9e2;
   --shadow:0 1px 2px rgba(44,37,33,.06),0 4px 14px rgba(44,37,33,.05);
   --radius:14px;
@@ -18,7 +19,8 @@
   :root{
     --bg:#17140f; --card:#211d18; --ink:#efe8df; --muted:#a1958a;
     --line:#332c24; --brand:#c79a6c; --brand-ink:#1d1712;
-    --ok:#6fc79b; --ok-bg:#16281f; --warn:#e0a763; --warn-bg:#2a1f12;
+    --ok:#6fc79b; --ok-bg:#16281f;
+    --warn:#e0a763; --warn-bg:#2f2314; --warn-line:#6b4d29;
     --me:#8fb6e8; --me-bg:#182231; --off:#2a241d;
     --shadow:0 1px 2px rgba(0,0,0,.3),0 4px 14px rgba(0,0,0,.25);
   }
@@ -31,12 +33,11 @@ body{
 }
 .wrap{max-width:640px; margin:0 auto; padding:0 16px 64px}
 
-/* ── 頁首 ───────────────────────────────── */
 header{padding:22px 0 14px}
 h1{margin:0; font-size:20px; letter-spacing:.02em}
-.sub{color:var(--muted); font-size:13px; margin-top:2px}
+.sub{color:var(--muted); font-size:13px; margin-top:3px}
 
-/* ── 身分列（吸頂） ─────────────────────── */
+/* 身分列（吸頂） */
 .who{
   position:sticky; top:0; z-index:20; margin:0 -16px; padding:10px 16px;
   background:color-mix(in srgb,var(--bg) 88%,transparent);
@@ -45,7 +46,7 @@ h1{margin:0; font-size:20px; letter-spacing:.02em}
 }
 .who-row{display:flex; gap:8px; align-items:center}
 .who label{font-size:13px; color:var(--muted); white-space:nowrap}
-select,input[type=text]{
+select{
   flex:1; min-width:0; font:inherit; font-size:15px; padding:9px 11px;
   border:1px solid var(--line); border-radius:10px;
   background:var(--card); color:var(--ink); appearance:none;
@@ -56,17 +57,22 @@ select,input[type=text]{
 .pill.ok{background:var(--ok-bg); color:var(--ok)}
 .pill.warn{background:var(--warn-bg); color:var(--warn)}
 
-/* ── 本週橫幅 ───────────────────────────── */
+/* 橫幅 */
 .banner{
   margin:16px 0; padding:14px 16px; border-radius:var(--radius);
   background:var(--card); border:1px solid var(--line); box-shadow:var(--shadow);
   border-left:4px solid var(--brand);
 }
+.banner.alert{border-left-color:var(--warn); background:var(--warn-bg); border-color:var(--warn-line)}
 .banner .t{font-size:12px; color:var(--muted); letter-spacing:.08em}
+.banner.alert .t{color:var(--warn)}
 .banner .n{font-size:19px; font-weight:600; margin-top:3px}
-.banner .d{font-size:13px; color:var(--muted); margin-top:2px}
+.banner .d{font-size:13px; color:var(--muted); margin-top:3px}
+.banner ul{margin:10px 0 0; padding:0; list-style:none}
+.banner li{display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:7px 0; border-top:1px solid var(--warn-line)}
+.banner li .txt{flex:1; min-width:140px; font-size:14px}
 
-/* ── 週次卡片 ───────────────────────────── */
+/* 週次卡片 */
 .sec{font-size:12px; color:var(--muted); letter-spacing:.08em; margin:26px 0 10px}
 .week{
   background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
@@ -78,34 +84,45 @@ select,input[type=text]{
 .week-head{display:flex; align-items:baseline; gap:8px; flex-wrap:wrap}
 .date{font-size:16px; font-weight:600; font-variant-numeric:tabular-nums}
 .meta{font-size:12px; color:var(--muted)}
-.tag{margin-left:auto; font-size:12px; padding:2px 9px; border-radius:999px; background:var(--off); color:var(--muted)}
+.tag{margin-left:auto; font-size:12px; padding:2px 9px; border-radius:999px; background:var(--off); color:var(--muted); white-space:nowrap}
 .tag.full{background:var(--ok-bg); color:var(--ok)}
 .tag.need{background:var(--warn-bg); color:var(--warn)}
+
 .slots{display:flex; gap:7px; margin-top:10px; flex-wrap:wrap}
 .slot{
-  flex:1 1 30%; min-width:96px; min-height:44px; padding:8px 10px;
+  flex:1 1 30%; min-width:96px; min-height:46px; padding:6px 8px;
   border-radius:10px; border:1px solid var(--line); background:var(--bg);
-  display:flex; align-items:center; justify-content:center; gap:6px;
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
   font-size:15px; text-align:center; line-height:1.25;
 }
-.slot.filled{background:var(--card)}
-.slot.self{background:var(--me-bg); border-color:var(--me); color:var(--me); font-weight:600; cursor:pointer}
-.slot.empty{border-style:dashed; color:var(--muted); cursor:pointer; font-size:14px}
-.slot.empty:active{background:var(--me-bg)}
-.slot[disabled]{cursor:default; opacity:.75}
-button.slot{font-family:inherit}
-.x{font-size:12px; opacity:.7}
+.slot.self{background:var(--me-bg); border-color:var(--me); color:var(--me); font-weight:600}
+.slot.pending{background:var(--warn-bg); border-color:var(--warn-line); color:var(--warn)}
+.slot .note{font-size:11px; font-weight:400; opacity:.9; margin-top:2px}
+.slot.empty{border-style:dashed; color:var(--muted); font-size:14px}
+button.slot{font-family:inherit; cursor:pointer}
+button.slot:active{background:var(--me-bg)}
+.slot[disabled]{cursor:default}
 
-/* ── 進度 ───────────────────────────────── */
+.acts{display:flex; gap:8px; flex-wrap:wrap; margin-top:10px}
+.btn{
+  font:inherit; font-size:13px; padding:8px 13px; min-height:38px;
+  border-radius:9px; border:1px solid var(--line); background:var(--card);
+  color:var(--ink); cursor:pointer; line-height:1.2;
+}
+.btn:active{opacity:.7}
+.btn.primary{background:var(--brand); border-color:var(--brand); color:var(--brand-ink); font-weight:600}
+.btn.warn{background:var(--warn-bg); border-color:var(--warn-line); color:var(--warn)}
+.btn.quiet{color:var(--muted)}
+
+/* 進度 */
 .stat{background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:14px 16px; box-shadow:var(--shadow)}
 .stat h2{margin:0 0 8px; font-size:14px}
 .names{display:flex; flex-wrap:wrap; gap:6px; margin-top:6px}
 .name{font-size:13px; padding:3px 10px; border-radius:999px; background:var(--warn-bg); color:var(--warn)}
-.name.done{background:var(--ok-bg); color:var(--ok)}
 .bar{height:6px; border-radius:3px; background:var(--off); overflow:hidden; margin:8px 0 4px}
 .bar>i{display:block; height:100%; background:var(--brand)}
+.hint{font-size:13px; color:var(--muted)}
 
-/* ── 提示 ───────────────────────────────── */
 .toast{
   position:fixed; left:50%; bottom:24px; transform:translateX(-50%) translateY(12px);
   max-width:calc(100% - 32px); padding:11px 16px; border-radius:12px;
@@ -153,6 +170,7 @@ footer{margin-top:28px; text-align:center; color:var(--muted); font-size:12px}
   // 尚未設定後端、或網址帶 ?demo 時，改用瀏覽器內建的假資料，方便先看畫面
   var DEMO = (NOT_SET || /[?&]demo\b/.test(location.search)) && window.DUTY_DEMO
     ? window.DUTY_DEMO() : null;
+
   var LS_KEY = 'pottery-duty:me';
   var state = null;
   var busy = false;
@@ -174,17 +192,22 @@ footer{margin-top:28px; text-align:center; color:var(--muted); font-size:12px}
     return Number(p[1]) + '/' + Number(p[2]);
   }
   function weekday(dateStr) {
-    var d = new Date(dateStr + 'T00:00:00+08:00');
-    return '日一二三四五六'[d.getDay()];
+    var p = dateStr.split('-');
+    var d = new Date(Date.UTC(Number(p[0]), Number(p[1]) - 1, Number(p[2])));
+    return '日一二三四五六'[d.getUTCDay()];
   }
   var toastTimer;
   function toast(text, isErr) {
     $toast.textContent = text;
     $toast.className = 'toast show' + (isErr ? ' err' : '');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(function () { $toast.className = 'toast'; }, isErr ? 4200 : 2200);
+    toastTimer = setTimeout(function () { $toast.className = 'toast'; }, isErr ? 4500 : 2400);
   }
-  function myName() { return $me.value; }
+  function myName() { return $me.value === '__other__' ? '' : $me.value; }
+  function weekByNo(no) {
+    for (var i = 0; i < state.weeks.length; i++) if (state.weeks[i].no === no) return state.weeks[i];
+    return null;
+  }
 
   // ── API ─────────────────────────────────
   function call(action, payload) {
@@ -202,18 +225,31 @@ footer{margin-top:28px; text-align:center; color:var(--muted); font-size:12px}
     });
   }
 
-  // ── 畫面 ────────────────────────────────
+  function send(action, payload, confirmText) {
+    if (busy) return;
+    if (confirmText && !confirm(confirmText)) return;
+    busy = true; $app.classList.add('busy');
+    return call(action, payload)
+      .then(function (res) {
+        if (!res.ok) { toast(res.error || '操作失敗', true); return; }
+        state = res;
+        render(); renderIdentity();
+        if (res.message) toast(res.message);
+      })
+      .catch(function (err) { toast('連線失敗：' + err.message, true); })
+      .then(function () { busy = false; $app.classList.remove('busy'); });
+  }
+
+  // ── 身分列 ──────────────────────────────
   function renderIdentity() {
     var saved = localStorage.getItem(LS_KEY) || '';
+    if (saved && state.roster.indexOf(saved) < 0) state.roster = state.roster.concat([saved]);
+
     var opts = ['<option value="">請選擇你的名字</option>'];
     state.roster.forEach(function (n) {
       opts.push('<option value="' + esc(n) + '"' + (n === saved ? ' selected' : '') + '>' + esc(n) + '</option>');
     });
-    if (state.allowFreeName) {
-      var isOther = saved && state.roster.indexOf(saved) < 0;
-      if (isOther) opts.push('<option value="' + esc(saved) + '" selected>' + esc(saved) + '</option>');
-      opts.push('<option value="__other__">✎ 名單裡沒有我，自己輸入…</option>');
-    }
+    if (state.allowFreeName) opts.push('<option value="__other__">✎ 名單裡沒有我，加入名單…</option>');
     $me.innerHTML = opts.join('');
     $who.hidden = false;
     renderMine();
@@ -221,7 +257,7 @@ footer{margin-top:28px; text-align:center; color:var(--muted); font-size:12px}
 
   function renderMine() {
     var n = myName();
-    if (!n) { $mine.innerHTML = '選好名字後，就可以直接點空位報名'; return; }
+    if (!n) { $mine.textContent = '選好名字後，就可以直接點空位報名'; return; }
     var c = state.counts[n] || 0;
     var need = state.minPerPerson;
     var mineWeeks = state.weeks.filter(function (w) {
@@ -236,55 +272,82 @@ footer{margin-top:28px; text-align:center; color:var(--muted); font-size:12px}
       (mineWeeks.length ? '　我的日期：' + mineWeeks.join('、') : '　尚未排任何日期');
   }
 
+  // ── 主畫面 ──────────────────────────────
   function render() {
     document.getElementById('title').textContent = state.className;
     document.getElementById('subtitle').textContent =
-      state.semester + '　值日生排班（每週 ' + state.perWeek + ' 人，每人至少 ' + state.minPerPerson + ' 次）';
+      [state.semester,
+       '每週' + state.weekdayCh + (state.classTime ? ' ' + state.classTime : ''),
+       '共 ' + state.weeks.length + ' 堂',
+       '值日生 ' + state.perWeek + ' 人／每人至少 ' + state.minPerPerson + ' 次'
+      ].join('　·　');
 
     var html = [];
-
-    // 本週橫幅
-    var cur = null;
-    for (var i = 0; i < state.weeks.length; i++) {
-      if (state.weeks[i].no === state.currentWeekNo) { cur = state.weeks[i]; break; }
-    }
-    if (cur) {
-      var names = cur.slots.filter(Boolean);
-      html.push(
-        '<div class="banner">' +
-          '<div class="t">' + (cur.date === state.today ? '今天' : '下一堂課') + '</div>' +
-          '<div class="n">' + (
-            !cur.needsDuty ? (esc(cur.label || '停課') + '　不用排值日生')
-            : names.length ? esc(names.join('、'))
-            : '還沒有人登記 🙋'
-          ) + '</div>' +
-          '<div class="d">' + cur.date + '（' + weekday(cur.date) + '）第 ' + cur.no + '/' + state.weeks.length + ' 堂</div>' +
-        '</div>'
-      );
-    }
-
-    if (state.demo) {
-      html.push('<div class="banner" style="border-left-color:var(--warn)">' +
-        '<div class="t">展示模式</div>' +
-        '<div class="n">這是假資料，可以隨意點</div>' +
-        '<div class="d">所有操作只留在這台裝置的記憶體裡，重新整理就會還原。' +
-        '把 Apps Script 網址填進 <code>docs/config.js</code> 後就會連上真正的試算表。</div></div>');
-    }
-
+    if (state.demo) html.push(demoBanner());
+    html.push(nextClassBanner());
+    var subs = subsBanner();
+    if (subs) html.push(subs);
     if (!state.open) {
-      html.push('<div class="banner" style="border-left-color:var(--warn)"><div class="n">排班已鎖定</div>' +
+      html.push('<div class="banner alert"><div class="t">已鎖定</div><div class="n">排班已鎖定</div>' +
         '<div class="d">班長已關閉線上異動，如需換班請直接聯絡班長。</div></div>');
     }
 
-    // 週次列表
     html.push('<div class="sec">全學期 ' + state.weeks.length + ' 堂</div>');
     state.weeks.forEach(function (w) { html.push(weekCard(w)); });
-
-    // 進度
     html.push(statsBlock());
 
     $app.innerHTML = html.join('');
-    document.getElementById('foot').textContent = '資料同步於 Google 試算表　·　最後更新 ' + new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
+    document.getElementById('foot').textContent =
+      '資料同步於 Google 試算表　·　更新於 ' +
+      new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function demoBanner() {
+    return '<div class="banner alert"><div class="t">展示模式</div>' +
+      '<div class="n">這是假資料，可以隨意點</div>' +
+      '<div class="d">所有操作只留在這台裝置的記憶體裡，重新整理就會還原。' +
+      '把 Apps Script 網址填進 <code>docs/config.js</code> 後就會連上真正的試算表。</div></div>';
+  }
+
+  function nextClassBanner() {
+    var cur = weekByNo(state.currentWeekNo);
+    if (!cur) return '<div class="banner"><div class="t">學期已結束</div><div class="n">辛苦了 🎉</div></div>';
+    var names = cur.slots.filter(Boolean);
+    var body = !cur.needsDuty ? (esc(cur.label || '停課') + '　不用排值日生')
+             : names.length ? esc(names.join('、'))
+             : '還沒有人登記 🙋';
+    return '<div class="banner">' +
+      '<div class="t">' + (cur.date === state.today ? '今天' : '下一堂課') + '</div>' +
+      '<div class="n">' + body + '</div>' +
+      '<div class="d">' + cur.date + '（' + weekday(cur.date) + '）' +
+        (state.classTime ? state.classTime + '　' : '') +
+        '第 ' + cur.no + '/' + state.weeks.length + ' 堂</div>' +
+      '</div>';
+  }
+
+  /** 全班都看得到的「徵求代班」求救區 */
+  function subsBanner() {
+    var me = myName();
+    var open = [];
+    state.weeks.forEach(function (w) {
+      if (w.date < state.today) return;
+      w.subs.forEach(function (n) { open.push({ w: w, name: n }); });
+    });
+    if (!open.length) return '';
+
+    var items = open.map(function (o) {
+      var isMe = me && o.name === me;
+      var btn = isMe
+        ? '<button class="btn quiet" data-act="cancelSub" data-week="' + o.w.no + '">我可以到了，取消徵求</button>'
+        : '<button class="btn primary" data-act="claimSub" data-week="' + o.w.no +
+          '" data-original="' + esc(o.name) + '">我來代</button>';
+      return '<li><span class="txt"><b>' + md(o.w.date) + '（' + weekday(o.w.date) + '）</b> ' +
+             esc(o.name) + (isMe ? '（你）' : '') + ' 無法出席</span>' + btn + '</li>';
+    }).join('');
+
+    return '<div class="banner alert"><div class="t">徵求代班</div>' +
+      '<div class="n">有 ' + open.length + ' 個班需要人接手</div>' +
+      '<ul>' + items + '</ul></div>';
   }
 
   function weekCard(w) {
@@ -295,34 +358,58 @@ footer{margin-top:28px; text-align:center; color:var(--muted); font-size:12px}
     if (past) cls.push('past');
     if (!w.needsDuty) cls.push('off');
 
-    var head =
-      '<div class="week-head">' +
-        '<span class="date">' + md(w.date) + '</span>' +
-        '<span class="meta">（' + weekday(w.date) + '）第 ' + w.no + ' 堂' + (w.label ? '・' + esc(w.label) : '') + '</span>';
+    var head = '<div class="week-head">' +
+      '<span class="date">' + md(w.date) + '</span>' +
+      '<span class="meta">（' + weekday(w.date) + '）第 ' + w.no + ' 堂' +
+        (w.label ? '・' + esc(w.label) : '') + '</span>';
 
-    if (!w.needsDuty) {
-      return '<div class="' + cls.join(' ') + '">' + head +
-        '<span class="tag">不用排值日生</span></div></div>';
-    }
+    if (!w.needsDuty) return '<div class="' + cls.join(' ') + '">' + head + '<span class="tag">不用排值日生</span></div></div>';
 
     var filled = w.slots.filter(Boolean).length;
     var tagCls = filled >= state.perWeek ? 'tag full' : (filled === 0 ? 'tag need' : 'tag');
     head += '<span class="' + tagCls + '">' + filled + '/' + state.perWeek + '</span></div>';
 
-    var slots = w.slots.map(function (n, i) {
-      if (n) {
-        var isSelf = me && n === me;
-        if (isSelf && state.open && !past) {
-          return '<button class="slot self" data-act="cancel" data-week="' + w.no + '">' +
-                 esc(n) + '<span class="x">取消</span></button>';
-        }
-        return '<div class="slot filled' + (isSelf ? ' self' : '') + '">' + esc(n) + '</div>';
+    var slots = w.slots.map(function (n) {
+      if (!n) {
+        if (past || !state.open) return '<div class="slot empty">—</div>';
+        return '<button class="slot empty" data-act="signup" data-week="' + w.no + '">＋ 我要值日</button>';
       }
-      if (past || !state.open) return '<div class="slot empty" disabled>—</div>';
-      return '<button class="slot empty" data-act="signup" data-week="' + w.no + '">＋ 我要值日</button>';
+      var c = ['slot'];
+      if (w.subs.indexOf(n) >= 0) c.push('pending');
+      else if (me && n === me) c.push('self');
+      return '<div class="' + c.join(' ') + '"><span>' + esc(n) + '</span>' +
+        (w.subs.indexOf(n) >= 0 ? '<span class="note">徵求代班中</span>' : '') + '</div>';
     }).join('');
 
-    return '<div class="' + cls.join(' ') + '">' + head + '<div class="slots">' + slots + '</div></div>';
+    return '<div class="' + cls.join(' ') + '">' + head +
+      '<div class="slots">' + slots + '</div>' + weekActions(w, past) + '</div>';
+  }
+
+  /** 卡片下方的操作列：取消排班 / 找代班 / 我來代 */
+  function weekActions(w, past) {
+    var me = myName();
+    if (!me || past) return '';
+    var acts = [];
+    var onDuty = w.slots.indexOf(me) >= 0;
+    var iAmPending = w.subs.indexOf(me) >= 0;
+
+    if (onDuty && state.open) {
+      if (iAmPending) {
+        acts.push('<button class="btn quiet" data-act="cancelSub" data-week="' + w.no + '">我可以到了，取消徵求</button>');
+      } else {
+        acts.push('<button class="btn quiet" data-act="cancel" data-week="' + w.no + '">取消排班</button>');
+        if (state.subsOpen) {
+          acts.push('<button class="btn warn" data-act="requestSub" data-week="' + w.no + '">我不能到，找人代班</button>');
+        }
+      }
+    }
+    if (!onDuty && state.subsOpen) {
+      w.subs.forEach(function (n) {
+        acts.push('<button class="btn primary" data-act="claimSub" data-week="' + w.no +
+                  '" data-original="' + esc(n) + '">我來代 ' + esc(n) + '</button>');
+      });
+    }
+    return acts.length ? '<div class="acts">' + acts.join('') + '</div>' : '';
   }
 
   function statsBlock() {
@@ -334,13 +421,12 @@ footer{margin-top:28px; text-align:center; color:var(--muted); font-size:12px}
       return a + (w.needsDuty ? w.slots.filter(Boolean).length : 0);
     }, 0);
     var pct = totalSlots ? Math.round(usedSlots / totalSlots * 100) : 0;
-
     var under = state.roster.filter(function (n) { return (state.counts[n] || 0) < state.minPerPerson; });
 
     var h = ['<div class="sec">排班進度</div><div class="stat">'];
     h.push('<h2>已排 ' + usedSlots + ' / ' + totalSlots + ' 個名額（' + pct + '%）</h2>');
     h.push('<div class="bar"><i style="width:' + pct + '%"></i></div>');
-    h.push('<div class="meta" style="font-size:13px;color:var(--muted)">未來還有 ' + short.length + ' 堂缺人' +
+    h.push('<div class="hint">未來還有 ' + short.length + ' 堂缺人' +
            (short.length ? '：' + short.map(function (w) { return md(w.date); }).join('、') : '') + '</div>');
 
     if (under.length) {
@@ -351,44 +437,47 @@ footer{margin-top:28px; text-align:center; color:var(--muted); font-size:12px}
     } else if (state.roster.length) {
       h.push('<h2 style="margin-top:14px">全班都已達標 🎉</h2>');
     }
-    h.push('</div>');
-    return h.join('');
+    return h.join('') + '</div>';
   }
 
   // ── 事件 ────────────────────────────────
   $app.addEventListener('click', function (e) {
-    var btn = e.target.closest('button.slot');
+    var btn = e.target.closest('button[data-act]');
     if (!btn || busy) return;
     var name = myName();
     if (!name) { toast('請先在上方選擇你的名字', true); $me.focus(); return; }
 
     var act = btn.dataset.act;
     var week = Number(btn.dataset.week);
+    var w = weekByNo(week);
+    var when = w ? md(w.date) + '（' + weekday(w.date) + '）' : '';
 
-    if (act === 'cancel' && !confirm('確定要取消這一天的值日生嗎？')) return;
+    if (act === 'signup')     return send('signup', { name: name, week: week });
+    if (act === 'cancel')     return send('cancel', { name: name, week: week }, '確定要取消 ' + when + ' 的值日生嗎？');
+    if (act === 'cancelSub')  return send('cancelSub', { name: name, week: week });
+    if (act === 'claimSub')   return send('claimSub',
+        { name: name, week: week, original: btn.dataset.original },
+        '確定代 ' + btn.dataset.original + ' 值 ' + when + ' 嗎？');
 
-    busy = true;
-    $app.classList.add('busy');
-    call(act, { name: name, week: week })
-      .then(function (res) {
-        if (!res.ok) { toast(res.error || '操作失敗', true); return; }
-        state = res;
-        render();
-        renderMine();
-        toast(res.message || '完成');
-      })
-      .catch(function (err) { toast('連線失敗：' + err.message, true); })
-      .finally(function () { busy = false; $app.classList.remove('busy'); });
+    if (act === 'requestSub') {
+      var reason = prompt('要跟大家說一下原因嗎？（可留空）\n\n' + when + ' 你的值日生名額會公開徵求代班，\n有人接手前你仍是值日生。');
+      if (reason === null) return;
+      return send('requestSub', { name: name, week: week, reason: reason });
+    }
   });
 
   $me.addEventListener('change', function () {
     if ($me.value === '__other__') {
-      var typed = (prompt('請輸入你的名字（會直接寫進排班表，請填全名）') || '').trim();
-      if (!typed) { $me.value = localStorage.getItem(LS_KEY) || ''; return; }
-      var opt = document.createElement('option');
-      opt.value = opt.textContent = typed;
-      $me.insertBefore(opt, $me.lastElementChild);
-      $me.value = typed;
+      var typed = (prompt('請輸入你的名字（會加進學員名單，之後大家都選得到）') || '').trim();
+      $me.value = localStorage.getItem(LS_KEY) || '';
+      if (!typed) { renderMine(); render(); return; }
+      return call('addMember', { name: typed }).then(function (res) {
+        if (!res.ok) { toast(res.error || '加入失敗', true); return; }
+        state = res;
+        localStorage.setItem(LS_KEY, typed);
+        renderIdentity(); render();
+        toast(res.message || '已加入名單');
+      }).catch(function (err) { toast('連線失敗：' + err.message, true); });
     }
     localStorage.setItem(LS_KEY, $me.value);
     renderMine();
