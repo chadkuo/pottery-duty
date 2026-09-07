@@ -4,7 +4,7 @@
  */
 const path = require('path');
 const fs = require('fs');
-const { ss, mails } = require('./mock.js');
+const { ss, mails, dialogs, ui } = require('./mock.js');
 eval(fs.readFileSync(path.join(__dirname, '..', 'apps-script', 'Code.gs'), 'utf8'));
 
 let pass = 0, fail = 0, group = '';
@@ -177,38 +177,37 @@ t('縮短堂數會回報被丟棄的排班', () => {
      '應回報 2027-01-12 高淑梅，實得 ' + JSON.stringify(out.dropped));
 });
 
-t('改上課星期：整學期日期跟著移動', () => {
+t('改上課星期：整學期日期跟著移動，舊排班一律清空並列出', () => {
   setCfg('第一堂課日期', '2026-09-02');   // 改成週三
   const out = generateSchedule_();
   const st = buildState_();
   eq(st.weeks[0].date, '2026-09-02');
   eq(st.weekdayCh, '三');
   eq(st.weeks[17].date, '2026-12-30');
-  ok(out.shifted.length > 0, '日期全變，應改以堂次對應保留');
-  eq(out.dropped, []);
+  eq(st.weeks[0].slots, ['', '', '']);
+  ok(out.dropped.some(d => d.includes('2026-09-01') && d.includes('錢芸惠')),
+     '應列出被清空的 9/1，實得 ' + JSON.stringify(out.dropped.slice(0, 3)));
 });
-t('日期位移時改以「第幾堂」對應，排班不會消失', () => {
-  const w1 = buildState_().weeks[0].slots.filter(Boolean);
-  ok(w1.length > 0, '第 1 堂應該有人');
-  eq(buildState_().weeks[0].date, '2026-09-02');
-  eq(buildState_().weeks[0].slots.filter(Boolean), w1);
-});
-t('改回週二可還原日期且排班仍在', () => {
-  setCfg('第一堂課日期', '2026-09-01');
-  const out = generateSchedule_();
+t('不會把舊排班默默搬到新日期', () => {
   const st = buildState_();
-  eq(st.weeks[0].date, '2026-09-01');
-  eq(st.weeks[0].slots, ['錢芸惠', '俞光彥', '李築善']);
-  ok(out.shifted.length > 0, '應回報依堂次對應');
+  eq(st.weeks.reduce((a, w) => a + w.slots.filter(Boolean).length, 0), 0);
 });
 
+t('改回原本的週二並重新填入排班', () => {
+  setCfg('第一堂課日期', '2026-09-01');
+  generateSchedule_();
+  seedInitialAssignments_();
+  eq(buildState_().weeks[0].slots, ['錢芸惠', '俞光彥', '李築善']);
+});
 t('把某天加進特殊安排 → 該堂變成不排班', () => {
+  mutate_('signup', '顏淑琦', 11);
   const sp = ss.getSheetByName('特殊安排');
   sp.appendRow(['2026-11-10', '國定假日', false]);
   const out = generateSchedule_();
   const w = buildState_().weeks.find(w => w.date === '2026-11-10');
   eq([w.label, w.needsDuty, w.slots.filter(Boolean)], ['國定假日', false, []]);
-  ok(out.movedToOff.some(d => d.includes('2026-11-10')), '應回報被清空的排班');
+  ok(out.movedToOff.some(d => d.includes('2026-11-10') && d.includes('顏淑琦')),
+     '應回報被清空的排班，實得 ' + JSON.stringify(out.movedToOff));
 });
 
 t('調整每週人數 3 → 4，欄位跟著增加', () => {
@@ -252,6 +251,107 @@ t('總堂數為 0 會報錯', () => {
 });
 
 // ===========================================================================
+section('重建前的確認視窗與備份');
+t('試算不會動到任何資料', () => {
+  const before = JSON.stringify(buildState_().weeks);
+  const p = previewRebuild_();
+  eq(JSON.stringify(buildState_().weeks), before, '試算後排班表不該改變');
+  ok(p.dates.length === 18 && p.kept.length > 0, JSON.stringify({ d: p.dates.length, k: p.kept.length }));
+});
+t('按「取消」時完全不動作', () => {
+  const before = JSON.stringify(buildState_().weeks);
+  const sheetsBefore = Object.keys(ss.sheets).length;
+  ui.answer = 'CANCEL';
+  setCfg('總堂數', 10);
+  rebuildSchedule();
+  ui.answer = 'OK';
+  eq(JSON.stringify(buildState_().weeks), before, '取消後排班表不該改變');
+  eq(Object.keys(ss.sheets).length, sheetsBefore, '取消後不該產生備份工作表');
+  setCfg('總堂數', 18);
+});
+t('確認視窗會先說明將被清空的排班', () => {
+  dialogs.length = 0;
+  setCfg('總堂數', 12);
+  ui.answer = 'CANCEL';
+  rebuildSchedule();
+  ui.answer = 'OK';
+  const d = dialogs[0];
+  eq(d.title, '重建排班表');
+  ok(d.buttons === 'OK_CANCEL', '應該是可取消的視窗，實得 ' + d.buttons);
+  ok(d.msg.includes('共 12 堂'), d.msg);
+  ok(d.msg.includes('會被清空'), d.msg);
+  setCfg('總堂數', 18);
+});
+t('設定填錯時會先擋下並說明，不會動到排班表', () => {
+  const before = JSON.stringify(buildState_().weeks);
+  dialogs.length = 0;
+  setCfg('第一堂課日期', '下週二');
+  let threw = false;
+  try { rebuildSchedule(); } catch (e) { threw = true; }
+  setCfg('第一堂課日期', '2026-09-01');          // 先修回設定，才讀得回狀態
+  ok(threw, '應該要拋出錯誤');
+  ok(dialogs.length === 1 && dialogs[0].title.includes('還沒有動到排班表'),
+     JSON.stringify(dialogs.map(d => d.title)));
+  eq(JSON.stringify(buildState_().weeks), before, '排班表不該被動到');
+});
+t('重建前自動備份，且備份內容是舊的排班', () => {
+  const before = buildState_().weeks[0].slots.slice();
+  setCfg('總堂數', 16);
+  rebuildSchedule();
+  const backup = Object.keys(ss.sheets).find(n => n.indexOf('排班表 備份') === 0);
+  ok(backup, '找不到備份工作表，現有：' + Object.keys(ss.sheets).join('、'));
+  const rows = ss.getSheetByName(backup).getDataRange().getValues();
+  eq(rows[1].slice(4, 7), before, '備份的第 1 堂應與重建前相同');
+  eq(rows.length - 1, 18, '備份應保有重建前的 18 堂');
+  eq(buildState_().weeks.length, 16, '新的排班表應為 16 堂');
+  setCfg('總堂數', 18);
+  rebuildSchedule();
+});
+
+section('換學期：只改三格 + 按一次重建');
+t('學期名稱、第一堂課日期、總堂數改完即完成換學期', () => {
+  setCfg('學期名稱', '2027 春季班');
+  setCfg('第一堂課日期', '2027-02-16');
+  setCfg('總堂數', 18);
+  // 特殊安排換成新學期的
+  const sp = ss.getSheetByName('特殊安排');
+  sp.clear();
+  sp.getRange(1, 1, 1, 3).setValues([['日期', '說明', '需排值日生']]);
+  sp.appendRow(['2027-04-06', '社大公民週', false]);
+  rebuildSchedule();
+
+  const st = buildState_();
+  eq(st.semester, '2027 春季班');
+  eq(st.weeks.length, 18);
+  eq(st.weeks[0].date, '2027-02-16');
+  eq(st.weekdayCh, '二');
+  eq(st.weeks[17].date, '2027-06-15');
+});
+t('新學期的排班表是乾淨的，沒有上學期的人', () => {
+  const st = buildState_();
+  eq(st.weeks.reduce((a, w) => a + w.slots.filter(Boolean).length, 0), 0);
+  Object.keys(st.counts).forEach(n => eq(st.counts[n], 0, n + ' 的次數應歸零'));
+});
+t('新學期的停課日生效', () => {
+  const w = buildState_().weeks.find(w => w.date === '2027-04-06');
+  eq([w.label, w.needsDuty], ['社大公民週', false]);
+});
+t('學員名單延續到新學期', () => {
+  ok(buildState_().roster.includes('錢芸惠'), '名單不該被清掉');
+});
+t('上學期的排班仍留在備份工作表裡', () => {
+  const backups = Object.keys(ss.sheets).filter(n => n.indexOf('排班表 備份') === 0);
+  ok(backups.length >= 1, '應該至少有一張備份');
+  const rows = ss.getSheetByName(backups[backups.length - 1]).getDataRange().getValues();
+  ok(rows.some(r => String(r[1]).indexOf('2026-') === 0), '備份裡應找得到 2026 年的日期');
+});
+t('新學期可以正常報名', () => {
+  const res = mutate_('signup', '錢芸惠', 1);
+  ok(res.ok, res.error);
+  eq(weekOf(res, 1).slots, ['錢芸惠', '', '']);
+});
+
+// ===========================================================================
 section('API 進入點');
 const post = b => JSON.parse(doPost({ postData: { contents: JSON.stringify(b) } }));
 t('read 可用', () => eq(post({ action: 'read' }).weeks.length, 18));
@@ -271,10 +371,10 @@ t('進度信內容含缺人日期', () => {
 section('LINE 公告文字');
 const line = buildLineText_();
 t('每一堂都有一行', () => eq(line.split('\n').filter(l => /^\d\d、/.test(l)).length, 18));
-t('標出不用排值日生的日期', () => ok(line.includes('12/29(二) 第 18/18 堂(吃好料的時光) --> 不用排值日生'), line.split('\n').pop()));
+t('標出不用排值日生的日期', () => ok(line.includes('(社大公民週) --> 不用排值日生'), line));
 t('標出徵求代班中', () => {
-  requestSub_('錢芸惠', 1);
-  ok(buildLineText_().includes('⚠錢芸惠 徵求代班中'));
+  ok(requestSub_('錢芸惠', 1).ok, '應能徵求代班');
+  ok(buildLineText_().includes('⚠錢芸惠 徵求代班中'), buildLineText_().split('\n')[2]);
   cancelSub_('錢芸惠', 1);
 });
 

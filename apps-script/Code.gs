@@ -118,7 +118,7 @@ function setupConfigSheet_(ss) {
   var rows = [
     ['設定項目', '值', '說明'],
     ['班級名稱', '大同週二拉坏班', '顯示在網頁最上方'],
-    ['學期名稱', '2026 秋季班', '顯示在網頁最上方'],
+    ['學期名稱', '2026 秋季班', '★ 換學期改這裡。顯示在網頁最上方'],
     ['第一堂課日期', '2026-09-01', '★ 換學期改這裡。格式 yyyy-MM-dd，之後每 7 天一堂'],
     ['總堂數', 18, '★ 換學期改這裡。整學期共幾堂課'],
     ['上課時間', '14:00–17:00', '（選填）顯示在網頁與提醒信上'],
@@ -135,7 +135,8 @@ function setupConfigSheet_(ss) {
   sh.getRange(1, 1, rows.length, 3).setValues(rows);
   sh.getRange(1, 1, 1, 3).setFontWeight('bold').setBackground('#e8eaed');
   sh.getRange(2, 2, rows.length - 1, 1).setNumberFormat('@'); // 純文字，避免日期被轉型
-  sh.getRange(4, 1, 2, 3).setBackground('#fff4e5');           // 標出換學期要改的兩列
+  sh.getRange(3, 1, 3, 3).setBackground('#fff4e5');           // 標出換學期要改的三列
+  sh.getRange(3, 1).setNote('橘色這三列就是換學期唯一要改的地方：\n學期名稱、第一堂課日期、總堂數。\n改完後執行選單「值日生 → 依設定重建排班表」。');
   sh.setColumnWidth(1, 170); sh.setColumnWidth(2, 200); sh.setColumnWidth(3, 460);
   sh.setFrozenRows(1);
 }
@@ -317,13 +318,112 @@ function readSchedule_(perWeek) {
 // ---------------------------------------------------------------------------
 
 /** 選單用的包裝：跑完跳出結果對話框 */
-function rebuildSchedule() {
-  var res = generateSchedule_();
-  try {
-    SpreadsheetApp.getUi().alert('排班表已重建', res.summary, SpreadsheetApp.getUi().ButtonSet.OK);
-  } catch (e) {
-    Logger.log(res.summary);
+/**
+ * 先試算一次「如果現在重建，會發生什麼事」，但不寫入任何東西。
+ * 給重建前的確認視窗用，讓班長按下去之前就看得到後果。
+ */
+function previewRebuild_() {
+  var cfg = getConfig_();
+  var special = getSpecial_();
+
+  var old = {};
+  readSchedule_().forEach(function (w) {
+    var names = w.slots.filter(function (n) { return n; });
+    if (names.length) old[w.date] = names;
+  });
+
+  var dates = [], inRange = {};
+  for (var i = 0; i < cfg.totalLessons; i++) {
+    var d = addDays_(cfg.firstDate, 7 * i);
+    dates.push(d);
+    inRange[d] = true;
   }
+
+  var kept = [], cleared = [];
+  dates.forEach(function (d) {
+    if (!old[d]) return;
+    var sp = special[d] || { needsDuty: true };
+    if (!sp.needsDuty) {
+      cleared.push(d + '（' + old[d].join('、') + '）改為不排值日生');
+    } else if (old[d].length > cfg.perWeek) {
+      kept.push(d);
+      cleared.push(d + '（' + old[d].slice(cfg.perWeek).join('、') + '）每週人數調少');
+    } else {
+      kept.push(d);
+    }
+  });
+  Object.keys(old).forEach(function (d) {
+    if (!inRange[d]) cleared.push(d + '（' + old[d].join('、') + '）不在新學期範圍內');
+  });
+
+  return { cfg: cfg, dates: dates, kept: kept, cleared: cleared, hadAny: Object.keys(old).length > 0 };
+}
+
+/** 把目前的排班表另存一份，命名為「排班表 備份 MMDD-HHmm」 */
+function backupScheduleSheet_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var src = ss.getSheetByName(SHEET_SCHEDULE);
+  if (!src || src.getLastRow() < 2) return '';
+  var name = '排班表 備份 ' + Utilities.formatDate(new Date(), TZ, 'MMdd-HHmm');
+  src.copyTo(ss).setName(name);
+  return name;
+}
+
+/**
+ * 選單「依設定重建排班表」。
+ * 三道保險：先試算 → 跳出確認視窗說明後果 → 確定後才動手，而且動手前自動備份。
+ */
+function rebuildSchedule() {
+  var ui, p;
+  try { ui = SpreadsheetApp.getUi(); } catch (e) { ui = null; }
+
+  try {
+    p = previewRebuild_();
+  } catch (err) {
+    if (ui) ui.alert('設定有問題，還沒有動到排班表', err.message, ui.ButtonSet.OK);
+    throw err;
+  }
+
+  var msg = [
+    '將依「設定」重新產生排班表：',
+    '',
+    '　學期　' + p.cfg.semester,
+    '　課程　' + p.dates[0] + ' 起，每週' + p.cfg.weekdayCh + '，共 ' + p.cfg.totalLessons + ' 堂',
+    '　最後一堂　' + p.dates[p.dates.length - 1],
+    '　每週值日生　' + p.cfg.perWeek + ' 人',
+    ''
+  ];
+
+  if (!p.hadAny) {
+    msg.push('目前排班表沒有任何人，不會有資料損失。');
+  } else {
+    msg.push('日期相同的 ' + p.kept.length + ' 堂，排班會原樣保留。');
+    if (p.cleared.length) {
+      msg.push('');
+      msg.push('⚠ 以下 ' + p.cleared.length + ' 筆排班會被清空：');
+      p.cleared.slice(0, 12).forEach(function (c) { msg.push('　' + c); });
+      if (p.cleared.length > 12) msg.push('　…以及其他 ' + (p.cleared.length - 12) + ' 筆');
+    } else {
+      msg.push('沒有任何排班會被清空。');
+    }
+    msg.push('');
+    msg.push('動手前會自動把目前的排班表另存一份備份，按錯了也救得回來。');
+  }
+  msg.push('');
+  msg.push('確定要重建嗎？');
+
+  if (ui) {
+    var answer = ui.alert('重建排班表', msg.join('\n'), ui.ButtonSet.OK_CANCEL);
+    if (answer !== ui.Button.OK) return;
+  }
+
+  var backup = backupScheduleSheet_();
+  var res = generateSchedule_();
+  var done = res.summary + (backup ? '\n\n舊的排班已備份為工作表「' + backup + '」。\n確認新的排班沒問題後，可以自行刪掉那張備份。' : '');
+
+  if (ui) ui.alert('排班表已重建', done, ui.ButtonSet.OK);
+  else Logger.log(done);
+  return done;
 }
 
 /**
@@ -344,8 +444,8 @@ function generateSchedule_() {
       var names = w.slots.filter(function (n) { return n; });
       if (names.length) oldEntries.push({ date: w.date, no: w.no, names: names, used: false });
     });
-    var byDate = {}, byNo = {};
-    oldEntries.forEach(function (e) { byDate[e.date] = e; byNo[e.no] = e; });
+    var byDate = {};
+    oldEntries.forEach(function (e) { byDate[e.date] = e; });
 
     // 2. 產生新的日期清單
     var special = getSpecial_();
@@ -366,18 +466,9 @@ function generateSchedule_() {
       if (e && !e.used) { e.used = true; p.names = e.names.slice(); }
     });
 
-    // 2b. 第二輪：整學期日期位移時（例如開學日往後挪一週），改以「第幾堂」對應，
-    //     否則使用者只是改了一個日期，就會把全班排好的班全部弄丟。
-    var shifted = [];
-    plan.forEach(function (p) {
-      if (p.names) return;
-      var e = byNo[p.no];
-      if (e && !e.used) {
-        e.used = true;
-        p.names = e.names.slice();
-        shifted.push(e.date + ' → ' + p.date);
-      }
-    });
+    // 註：這裡刻意「只認日期」。曾經試過日期對不上時改以「第幾堂」對應，
+    //     但換學期時新舊日期完全不同，那樣會把上學期整份排班默默複製到新學期，
+    //     班長不一定看得出來。規則單純可預期，比聰明重要。
 
     // 2c. 套用特殊安排、依每週人數裁切
     var rows = [], movedToOff = [], truncated = [];
@@ -434,7 +525,6 @@ function generateSchedule_() {
       '每週值日生：' + cfg.perWeek + ' 人',
       '不排值日生的日期：' + (dates.filter(function (d) { return special[d] && !special[d].needsDuty; }).join('、') || '無')
     ];
-    if (shifted.length)    lines.push('ℹ 日期已位移，依堂次對應保留了 ' + shifted.length + ' 堂的排班：' + shifted.slice(0, 5).join('、') + (shifted.length > 5 ? ' …' : ''));
     if (movedToOff.length) lines.push('⚠ 因改為「不排值日生」而清空的排班：' + movedToOff.join('、'));
     if (truncated.length)  lines.push('⚠ 因每週人數調少而移除的排班：' + truncated.join('、'));
     if (dropped.length)    lines.push('⚠ 已不在學期內、無法對應而遺失的排班：' + dropped.join('、'));
@@ -442,7 +532,7 @@ function generateSchedule_() {
 
     appendLog_('重建排班表', '', '', '', lines.join(' / '));
     SpreadsheetApp.flush();
-    return { summary: lines.join('\n'), dropped: dropped, movedToOff: movedToOff, truncated: truncated, shifted: shifted };
+    return { summary: lines.join('\n'), dropped: dropped, movedToOff: movedToOff, truncated: truncated };
 
   } finally {
     lock.releaseLock();

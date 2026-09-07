@@ -55,6 +55,13 @@ class Sheet {
   deleteColumns(start, num) { this.data = this.data.map(r => r.slice(0, start - 1).concat(r.slice(start - 1 + num))); }
   clear() { this.data = []; return this; }
   getRange(r, c, nr = 1, nc = 1) { return new Range(this, r, c, nr, nc); }
+  copyTo(target) {
+    const copy = new Sheet(this.name + ' 的副本');
+    copy.data = this.data.map(r => r.slice());
+    copy.setName = n => { delete target.sheets[copy.name]; copy.name = n; target.sheets[n] = copy; return copy; };
+    target.sheets[copy.name] = copy;
+    return copy;
+  }
   getDataRange() { return new Range(this, 1, 1, Math.max(1, this.getLastRow()), Math.max(1, this.getLastColumn())); }
   appendRow(vals) { const r = this.getLastRow() + 1; vals.forEach((v, j) => this._set(r, j + 1, v)); }
   setColumnWidth() { return this; }
@@ -69,11 +76,15 @@ const ss = {
 };
 
 const mails = [];
+const dialogs = [];
+// 測試可改 ui.answer 來模擬使用者在確認視窗按了「取消」
 const ui = {
+  answer: 'OK',
   createMenu: () => chain,
   showModalDialog() {},
-  alert() {},
-  ButtonSet: { OK: 'OK' },
+  alert(title, msg, buttons) { dialogs.push({ title, msg, buttons }); return ui.answer; },
+  ButtonSet: { OK: 'OK', OK_CANCEL: 'OK_CANCEL' },
+  Button: { OK: 'OK', CANCEL: 'CANCEL' },
 };
 
 global.SpreadsheetApp = { getActiveSpreadsheet: () => ss, flush() {}, getUi: () => ui };
@@ -89,6 +100,12 @@ global.ScriptApp = {
 };
 global.Utilities = {
   formatDate(d, tz, fmt) {
+    if (fmt === 'MMdd-HHmm') {
+      const p = new Intl.DateTimeFormat('en-CA', {
+        timeZone: tz, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
+      }).formatToParts(d).reduce((a, x) => ((a[x.type] = x.value), a), {});
+      return `${p.month}${p.day}-${p.hour}${p.minute}`;
+    }
     const p = new Intl.DateTimeFormat('en-CA', {
       timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
       hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
@@ -99,4 +116,4 @@ global.Utilities = {
   },
 };
 
-module.exports = { ss, mails };
+module.exports = { ss, mails, dialogs, ui };
