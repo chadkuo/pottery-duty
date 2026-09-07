@@ -29,7 +29,8 @@ const server = http.createServer((req, res) => {
 }).listen(0);
 
 const dom = new JSDOM(fs.readFileSync(path.join(DOCS, 'index.html'), 'utf8'), {
-  url: 'http://localhost:' + server.address().port + '/',
+  // 明確帶 ?demo：config.js 已指向正式後端，不加的話會去打真的 API
+  url: 'http://localhost:' + server.address().port + '/?demo',
   runScripts: 'dangerously', resources: 'usable', pretendToBeVisual: true, virtualConsole: vc,
 });
 const { window } = dom;
