@@ -62,7 +62,7 @@ window.prompt = () => promptAnswer;
   t('下一堂課橫幅指向 9/8', () => {
     const b = $$('.banner').find(b => b.textContent.includes('下一堂課'));
     ok(b, '找不到下一堂課橫幅');
-    ok(b.textContent.includes('錢芸惠、志平、宓敦'), b.textContent);
+    ok(b.textContent.includes('王小明、張淑芬、黃俊傑'), b.textContent);
     ok(b.textContent.includes('2026-09-08'), b.textContent);
   });
   t('停課週標示且無按鈕', () => {
@@ -75,31 +75,31 @@ window.prompt = () => promptAnswer;
   t('未選名字時卡片沒有操作列', () => eq(card(5).querySelectorAll('.acts').length, 0));
 
   section('報名');
-  pick('顏淑琦');
-  t('顯示個人狀態', () => ok(/顏淑琦.*還差 1 次/.test($('#mine').textContent), $('#mine').textContent));
+  pick('蔡佩珊');
+  t('顯示個人狀態', () => ok(/蔡佩珊.*還差 1 次/.test($('#mine').textContent), $('#mine').textContent));
   t('第 7 堂有 3 個報名鈕', () => eq(card(7).querySelectorAll('button[data-act="signup"]').length, 3));
   click(card(7).querySelector('button[data-act="signup"]'));
   await wait(60);
-  t('名字寫入第 7 堂', () => ok(card(7).textContent.includes('顏淑琦'), card(7).textContent.trim()));
+  t('名字寫入第 7 堂', () => ok(card(7).textContent.includes('蔡佩珊'), card(7).textContent.trim()));
   t('計數變 1/3', () => eq(card(7).querySelector('.tag').textContent, '1/3'));
   t('個人狀態變已達標', () => ok(/已達標 2\/2/.test($('#mine').textContent), $('#mine').textContent));
   t('出現取消與找代班按鈕', () => eq(acts(card(7)), ['cancel:取消排班', 'requestSub:我不能到，找人代班']));
-  t('名字記進 localStorage', () => eq(window.localStorage.getItem('pottery-duty:me'), '顏淑琦'));
+  t('名字記進 localStorage', () => eq(window.localStorage.getItem('pottery-duty:me'), '蔡佩珊'));
 
   section('額滿保護');
-  pick('石惠禎'); click(card(7).querySelector('button[data-act="signup"]')); await wait(60);
-  pick('李築善'); click(card(7).querySelector('button[data-act="signup"]')); await wait(60);
+  pick('劉建宏'); click(card(7).querySelector('button[data-act="signup"]')); await wait(60);
+  pick('林志豪'); click(card(7).querySelector('button[data-act="signup"]')); await wait(60);
   t('第 7 堂已滿 3/3', () => eq(card(7).querySelector('.tag').textContent, '3/3'));
   t('滿了就沒有報名鈕', () => eq(card(7).querySelectorAll('button[data-act="signup"]').length, 0));
 
   section('代班：徵求');
-  pick('高淑梅');
+  pick('吳雅婷');
   t('第 4 堂顯示自己可操作', () => eq(acts(card(4)), ['cancel:取消排班', 'requestSub:我不能到，找人代班']));
   promptAnswer = '臨時要看醫生';
   click(card(4).querySelector('button[data-act="requestSub"]'));
   await wait(60);
   t('格子標為徵求代班中', () => {
-    const slot = [...card(4).querySelectorAll('.slot')].find(s => s.textContent.includes('高淑梅'));
+    const slot = [...card(4).querySelectorAll('.slot')].find(s => s.textContent.includes('吳雅婷'));
     ok(slot.classList.contains('pending'), slot.className);
     ok(slot.textContent.includes('徵求代班中'), slot.textContent);
   });
@@ -108,35 +108,35 @@ window.prompt = () => promptAnswer;
     const b = $$('.banner').find(b => b.textContent.includes('徵求代班'));
     ok(b, '找不到徵求代班橫幅');
     ok(txt(b).includes('有 1 個班需要人接手'), txt(b));
-    ok(txt(b).includes('高淑梅（你） 無法出席'), txt(b));
+    ok(txt(b).includes('吳雅婷（你） 無法出席'), txt(b));
     ok(txt(b).includes('9/22（二）'), txt(b));
   });
 
   section('代班：認領');
-  pick('宓敦');
+  pick('黃俊傑');
   t('已排在同一天的人看不到「我來代」', () => eq(acts(card(4)).filter(b => b.startsWith('claimSub')), []));
-  pick('顏淑琦');
-  t('其他同學看得到「我來代 高淑梅」', () => ok(acts(card(4)).includes('claimSub:我來代 高淑梅'), JSON.stringify(acts(card(4)))));
+  pick('蔡佩珊');
+  t('其他同學看得到「我來代 吳雅婷」', () => ok(acts(card(4)).includes('claimSub:我來代 吳雅婷'), JSON.stringify(acts(card(4)))));
   t('橫幅也有認領按鈕', () => {
     const b = $$('.banner').find(b => b.textContent.includes('徵求代班'));
     ok(b.querySelector('button[data-act="claimSub"]'), '橫幅缺少認領按鈕');
   });
   click($$('.banner').find(b => b.textContent.includes('徵求代班')).querySelector('button[data-act="claimSub"]'));
   await wait(60);
-  t('第 4 堂的高淑梅換成顏淑琦', () => {
+  t('第 4 堂的吳雅婷換成蔡佩珊', () => {
     const names = [...card(4).querySelectorAll('.slot')].map(s => s.textContent.trim());
-    ok(names.includes('顏淑琦'), JSON.stringify(names));
-    ok(!names.some(n => n.includes('高淑梅')), JSON.stringify(names));
+    ok(names.includes('蔡佩珊'), JSON.stringify(names));
+    ok(!names.some(n => n.includes('吳雅婷')), JSON.stringify(names));
   });
   t('求救橫幅消失', () => ok(!$$('.banner').some(b => b.textContent.includes('有 1 個班需要人接手'))));
-  t('顯示成功訊息', () => ok($('#toast').textContent.includes('你代了 高淑梅'), $('#toast').textContent));
+  t('顯示成功訊息', () => ok($('#toast').textContent.includes('你代了 吳雅婷'), $('#toast').textContent));
 
   section('代班：取消徵求');
-  pick('石惠禎');
+  pick('劉建宏');
   promptAnswer = '';
   click(card(6).querySelector('button[data-act="requestSub"]'));
   await wait(60);
-  t('徵求成立', () => ok($$('.banner').some(b => txt(b).includes('石惠禎（你） 無法出席')),
+  t('徵求成立', () => ok($$('.banner').some(b => txt(b).includes('劉建宏（你） 無法出席')),
       $$('.banner').map(txt).join(' || ')));
   click(card(6).querySelector('button[data-act="cancelSub"]'));
   await wait(60);
@@ -170,7 +170,7 @@ window.prompt = () => promptAnswer;
   t('列出未達 2 次的同學', () => {
     const names = $$('.name').map(e => e.textContent.trim());
     ok(names.length > 0, '未達標名單不該是空的');
-    ok(!names.some(n => n.startsWith('錢芸惠')), '錢芸惠已 3 次不該出現');
+    ok(!names.some(n => n.startsWith('王小明')), '王小明已 3 次不該出現');
   });
 
   console.log(`\n=== ${pass} 通過 / ${fail} 失敗 ===`);

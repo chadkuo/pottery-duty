@@ -60,27 +60,27 @@ t('12/29 標為吃好料且不排班', () => {
 t('其餘 16 堂都要排班', () => eq(s.weeks.filter(w => w.needsDuty).length, 16));
 
 section('一次性匯入 LINE 上既有排班');
-t('第 1 堂三人到位', () => eq(s.weeks[0].slots, ['錢芸惠', '俞光彥', '李築善']));
-t('錢芸惠 3 次、顏淑琦 1 次', () => eq([s.counts['錢芸惠'], s.counts['顏淑琦']], [3, 1]));
+t('第 1 堂三人到位', () => eq(s.weeks[0].slots, ['王小明', '陳美玲', '林志豪']));
+t('王小明 3 次、蔡佩珊 1 次', () => eq([s.counts['王小明'], s.counts['蔡佩珊']], [3, 1]));
 t('共匯入 18 個名額', () => eq(s.weeks.reduce((a, w) => a + w.slots.filter(Boolean).length, 0), 18));
-t('重跑不會重複匯入', () => { seedInitialAssignments_(); eq(buildState_().weeks[0].slots, ['錢芸惠', '俞光彥', '李築善']); });
+t('重跑不會重複匯入', () => { seedInitialAssignments_(); eq(buildState_().weeks[0].slots, ['王小明', '陳美玲', '林志豪']); });
 
 // ===========================================================================
 section('報名 / 取消');
-let r = mutate_('signup', '顏淑琦', 7);
-t('報名成功並寫入第一個空位', () => eq(weekOf(r, 7).slots, ['顏淑琦', '', '']));
-t('次數 +1', () => eq(r.counts['顏淑琦'], 2));
-t('同一週不能重複報名', () => errIncludes(mutate_('signup', '顏淑琦', 7), '已經排在'));
-t('停課週不能報名', () => errIncludes(mutate_('signup', '顏淑琦', 9), '不用排值日生'));
-t('不存在的週次擋下', () => errIncludes(mutate_('signup', '顏淑琦', 99), '找不到'));
+let r = mutate_('signup', '蔡佩珊', 7);
+t('報名成功並寫入第一個空位', () => eq(weekOf(r, 7).slots, ['蔡佩珊', '', '']));
+t('次數 +1', () => eq(r.counts['蔡佩珊'], 2));
+t('同一週不能重複報名', () => errIncludes(mutate_('signup', '蔡佩珊', 7), '已經排在'));
+t('停課週不能報名', () => errIncludes(mutate_('signup', '蔡佩珊', 9), '不用排值日生'));
+t('不存在的週次擋下', () => errIncludes(mutate_('signup', '蔡佩珊', 99), '找不到'));
 t('空白姓名擋下', () => errIncludes(mutate_('signup', '   ', 7), '選擇你的名字'));
 
-mutate_('signup', '石惠禎', 7);
-mutate_('signup', '高淑梅', 7);
-t('額滿後第 4 人被拒', () => errIncludes(mutate_('signup', '宓敦', 7), '名額已滿'));
-t('取消後留下空位', () => eq(weekOf(mutate_('cancel', '石惠禎', 7), 7).slots, ['顏淑琦', '', '高淑梅']));
-t('沒排的人取消被擋', () => errIncludes(mutate_('cancel', '宓敦', 7), '原本就沒有排'));
-t('取消後別人可補位', () => eq(weekOf(mutate_('signup', '宓敦', 7), 7).slots, ['顏淑琦', '宓敦', '高淑梅']));
+mutate_('signup', '劉建宏', 7);
+mutate_('signup', '吳雅婷', 7);
+t('額滿後第 4 人被拒', () => errIncludes(mutate_('signup', '黃俊傑', 7), '名額已滿'));
+t('取消後留下空位', () => eq(weekOf(mutate_('cancel', '劉建宏', 7), 7).slots, ['蔡佩珊', '', '吳雅婷']));
+t('沒排的人取消被擋', () => errIncludes(mutate_('cancel', '黃俊傑', 7), '原本就沒有排'));
+t('取消後別人可補位', () => eq(weekOf(mutate_('signup', '黃俊傑', 7), 7).slots, ['蔡佩珊', '黃俊傑', '吳雅婷']));
 
 // ===========================================================================
 section('成員可自行新增');
@@ -104,47 +104,47 @@ t('關閉自行輸入後，陌生名字被擋', () => {
 
 // ===========================================================================
 section('代班：徵求');
-t('不是值日生不能徵求代班', () => errIncludes(requestSub_('李築善', 7), '不是'));
-r = requestSub_('宓敦', 7, '臨時出差');
+t('不是值日生不能徵求代班', () => errIncludes(requestSub_('林志豪', 7), '不是'));
+r = requestSub_('黃俊傑', 7, '臨時出差');
 t('徵求成功', () => ok(r.ok, r.error));
-t('該週出現徵求中名單', () => eq(weekOf(r, 7).subs, ['宓敦']));
-t('排班表仍掛原值日生', () => eq(weekOf(r, 7).slots, ['顏淑琦', '宓敦', '高淑梅']));
-t('不能重複徵求同一天', () => errIncludes(requestSub_('宓敦', 7), '已經在徵求'));
+t('該週出現徵求中名單', () => eq(weekOf(r, 7).subs, ['黃俊傑']));
+t('排班表仍掛原值日生', () => eq(weekOf(r, 7).slots, ['蔡佩珊', '黃俊傑', '吳雅婷']));
+t('不能重複徵求同一天', () => errIncludes(requestSub_('黃俊傑', 7), '已經在徵求'));
 t('代班需求表留下徵求中紀錄', () => {
-  const row = sheetRows('代班需求').find(x => x[3] === '宓敦');
+  const row = sheetRows('代班需求').find(x => x[3] === '黃俊傑');
   eq([row[1], row[2], row[4]], ['2026-10-13', 7, '徵求中']);
 });
 
 section('代班：認領');
-t('不能代自己的班', () => errIncludes(claimSub_('宓敦', 7, '宓敦'), '不能代自己'));
-t('已排在同一天的人不能代', () => errIncludes(claimSub_('高淑梅', 7, '宓敦'), '本來就排在'));
-t('原值日生名字對不上會擋下', () => errIncludes(claimSub_('李築善', 7, '錢芸惠'), '已經被別人接走'));
+t('不能代自己的班', () => errIncludes(claimSub_('黃俊傑', 7, '黃俊傑'), '不能代自己'));
+t('已排在同一天的人不能代', () => errIncludes(claimSub_('吳雅婷', 7, '黃俊傑'), '本來就排在'));
+t('原值日生名字對不上會擋下', () => errIncludes(claimSub_('林志豪', 7, '王小明'), '已經被別人接走'));
 
-r = claimSub_('李築善', 7, '宓敦');
+r = claimSub_('林志豪', 7, '黃俊傑');
 t('認領成功', () => ok(r.ok, r.error));
-t('排班表換成代班人', () => eq(weekOf(r, 7).slots, ['顏淑琦', '李築善', '高淑梅']));
+t('排班表換成代班人', () => eq(weekOf(r, 7).slots, ['蔡佩珊', '林志豪', '吳雅婷']));
 t('徵求中名單清空', () => eq(weekOf(r, 7).subs, []));
-t('次數自動轉移：宓敦 -1、李築善 +1', () => { eq(r.counts['宓敦'], 3); eq(r.counts['李築善'], 2); });
+t('次數自動轉移：黃俊傑 -1、林志豪 +1', () => { eq(r.counts['黃俊傑'], 3); eq(r.counts['林志豪'], 2); });
 t('代班需求表記錄誰代誰', () => {
-  const row = sheetRows('代班需求').find(x => x[3] === '宓敦' && x[4] === '已代班');
-  eq(row[5], '李築善');
+  const row = sheetRows('代班需求').find(x => x[3] === '黃俊傑' && x[4] === '已代班');
+  eq(row[5], '林志豪');
 });
-t('同一筆不能被認領兩次', () => errIncludes(claimSub_('錢芸惠', 7, '宓敦'), '已經被別人接走'));
+t('同一筆不能被認領兩次', () => errIncludes(claimSub_('王小明', 7, '黃俊傑'), '已經被別人接走'));
 
 section('代班：取消徵求與失效');
-requestSub_('高淑梅', 7);
-r = cancelSub_('高淑梅', 7);
+requestSub_('吳雅婷', 7);
+r = cancelSub_('吳雅婷', 7);
 t('原值日生可自行取消徵求', () => { ok(r.ok, r.error); eq(weekOf(r, 7).subs, []); });
-t('沒有徵求時取消會擋下', () => errIncludes(cancelSub_('高淑梅', 7), '找不到你的代班徵求'));
+t('沒有徵求時取消會擋下', () => errIncludes(cancelSub_('吳雅婷', 7), '找不到你的代班徵求'));
 t('原值日生退掉排班後，徵求自動失效', () => {
-  requestSub_('顏淑琦', 7);
-  ok(weekOf(buildState_(), 7).subs.includes('顏淑琦'), '應先處於徵求中');
-  mutate_('cancel', '顏淑琦', 7);
+  requestSub_('蔡佩珊', 7);
+  ok(weekOf(buildState_(), 7).subs.includes('蔡佩珊'), '應先處於徵求中');
+  mutate_('cancel', '蔡佩珊', 7);
   eq(weekOf(buildState_(), 7).subs, []);
 });
 t('關閉代班功能後不能徵求', () => {
   setCfg('開放代班', 'FALSE');
-  errIncludes(requestSub_('高淑梅', 7), '關閉代班');
+  errIncludes(requestSub_('吳雅婷', 7), '關閉代班');
   setCfg('開放代班', 'TRUE');
 });
 
@@ -152,7 +152,7 @@ t('關閉代班功能後不能徵求', () => {
 section('鎖定排班');
 t('鎖定後不能報名', () => {
   setCfg('開放報名', 'FALSE');
-  errIncludes(mutate_('signup', '宓敦', 12), '鎖定');
+  errIncludes(mutate_('signup', '黃俊傑', 12), '鎖定');
   setCfg('開放報名', 'TRUE');
 });
 
@@ -170,11 +170,11 @@ t('加開兩堂課（18 → 20）', () => {
 t('加開後原有排班完整保留', () => eq(weekOf(buildState_(), 7).slots.filter(Boolean), before7));
 
 t('縮短堂數會回報被丟棄的排班', () => {
-  mutate_('signup', '高淑梅', 20);
+  mutate_('signup', '吳雅婷', 20);
   const res = generateSchedule_.length, out = (setCfg('總堂數', 18), generateSchedule_());
   eq(buildState_().weeks.length, 18);
-  ok(out.dropped.some(d => d.includes('2027-01-12') && d.includes('高淑梅')),
-     '應回報 2027-01-12 高淑梅，實得 ' + JSON.stringify(out.dropped));
+  ok(out.dropped.some(d => d.includes('2027-01-12') && d.includes('吳雅婷')),
+     '應回報 2027-01-12 吳雅婷，實得 ' + JSON.stringify(out.dropped));
 });
 
 t('改上課星期：整學期日期跟著移動，舊排班一律清空並列出', () => {
@@ -185,7 +185,7 @@ t('改上課星期：整學期日期跟著移動，舊排班一律清空並列�
   eq(st.weekdayCh, '三');
   eq(st.weeks[17].date, '2026-12-30');
   eq(st.weeks[0].slots, ['', '', '']);
-  ok(out.dropped.some(d => d.includes('2026-09-01') && d.includes('錢芸惠')),
+  ok(out.dropped.some(d => d.includes('2026-09-01') && d.includes('王小明')),
      '應列出被清空的 9/1，實得 ' + JSON.stringify(out.dropped.slice(0, 3)));
 });
 t('不會把舊排班默默搬到新日期', () => {
@@ -197,16 +197,16 @@ t('改回原本的週二並重新填入排班', () => {
   setCfg('第一堂課日期', '2026-09-01');
   generateSchedule_();
   seedInitialAssignments_();
-  eq(buildState_().weeks[0].slots, ['錢芸惠', '俞光彥', '李築善']);
+  eq(buildState_().weeks[0].slots, ['王小明', '陳美玲', '林志豪']);
 });
 t('把某天加進特殊安排 → 該堂變成不排班', () => {
-  mutate_('signup', '顏淑琦', 11);
+  mutate_('signup', '蔡佩珊', 11);
   const sp = ss.getSheetByName('特殊安排');
   sp.appendRow(['2026-11-10', '國定假日', false]);
   const out = generateSchedule_();
   const w = buildState_().weeks.find(w => w.date === '2026-11-10');
   eq([w.label, w.needsDuty, w.slots.filter(Boolean)], ['國定假日', false, []]);
-  ok(out.movedToOff.some(d => d.includes('2026-11-10') && d.includes('顏淑琦')),
+  ok(out.movedToOff.some(d => d.includes('2026-11-10') && d.includes('蔡佩珊')),
      '應回報被清空的排班，實得 ' + JSON.stringify(out.movedToOff));
 });
 
@@ -216,14 +216,14 @@ t('調整每週人數 3 → 4，欄位跟著增加', () => {
   const st = buildState_();
   eq(st.perWeek, 4);
   eq(st.weeks[0].slots.length, 4);
-  eq(st.weeks[0].slots, ['錢芸惠', '俞光彥', '李築善', '']);
+  eq(st.weeks[0].slots, ['王小明', '陳美玲', '林志豪', '']);
 });
 t('調整每週人數 4 → 2，多餘的人會被截掉並保留前 2 位', () => {
   setCfg('每週值日生人數', 2);
   const out = generateSchedule_();
-  ok(out.truncated.some(d => d.includes('李築善')), '應回報被移除的李築善，實得 ' + JSON.stringify(out.truncated));
+  ok(out.truncated.some(d => d.includes('林志豪')), '應回報被移除的林志豪，實得 ' + JSON.stringify(out.truncated));
   const st = buildState_();
-  eq(st.weeks[0].slots, ['錢芸惠', '俞光彥']);
+  eq(st.weeks[0].slots, ['王小明', '陳美玲']);
   eq(st.weeks[0].slots.length, 2);
   setCfg('每週值日生人數', 3);
   generateSchedule_();
@@ -337,7 +337,7 @@ t('新學期的停課日生效', () => {
   eq([w.label, w.needsDuty], ['社大公民週', false]);
 });
 t('學員名單延續到新學期', () => {
-  ok(buildState_().roster.includes('錢芸惠'), '名單不該被清掉');
+  ok(buildState_().roster.includes('王小明'), '名單不該被清掉');
 });
 t('上學期的排班仍留在備份工作表裡', () => {
   const backups = Object.keys(ss.sheets).filter(n => n.indexOf('排班表 備份') === 0);
@@ -346,9 +346,9 @@ t('上學期的排班仍留在備份工作表裡', () => {
   ok(rows.some(r => String(r[1]).indexOf('2026-') === 0), '備份裡應找得到 2026 年的日期');
 });
 t('新學期可以正常報名', () => {
-  const res = mutate_('signup', '錢芸惠', 1);
+  const res = mutate_('signup', '王小明', 1);
   ok(res.ok, res.error);
-  eq(weekOf(res, 1).slots, ['錢芸惠', '', '']);
+  eq(weekOf(res, 1).slots, ['王小明', '', '']);
 });
 
 // ===========================================================================
@@ -363,32 +363,32 @@ t('手改「說明」欄，網頁立刻看得到', () => {
 });
 
 t('手動取消勾選「需排值日生」，該堂就變成不用排', () => {
-  mutate_('signup', '高淑梅', 3);
-  mutate_('signup', '宓敦', 3);
-  eq(weekOf(buildState_(), 3).slots.filter(Boolean), ['高淑梅', '宓敦']);
+  mutate_('signup', '吳雅婷', 3);
+  mutate_('signup', '黃俊傑', 3);
+  eq(weekOf(buildState_(), 3).slots.filter(Boolean), ['吳雅婷', '黃俊傑']);
 
   sched().getRange(rowOf(3), 4).setValue(false);
   const w = weekOf(buildState_(), 3);
   eq(w.needsDuty, false);
-  eq(buildState_().counts['高淑梅'], 0, '不排班的堂次不該計入次數');
+  eq(buildState_().counts['吳雅婷'], 0, '不排班的堂次不該計入次數');
 });
 
 t('取消勾選不會刪掉原本排的人', () => {
-  eq(sched().getRange(rowOf(3), 5, 1, 3).getValues()[0], ['高淑梅', '宓敦', ''],
+  eq(sched().getRange(rowOf(3), 5, 1, 3).getValues()[0], ['吳雅婷', '黃俊傑', ''],
      '名字應該還留在儲存格裡');
 });
 
 t('重新勾選回來，人和次數都回來', () => {
   sched().getRange(rowOf(3), 4).setValue(true);
   const st = buildState_();
-  eq(weekOf(st, 3).slots.filter(Boolean), ['高淑梅', '宓敦']);
-  eq(st.counts['高淑梅'], 1);
+  eq(weekOf(st, 3).slots.filter(Boolean), ['吳雅婷', '黃俊傑']);
+  eq(st.counts['吳雅婷'], 1);
 });
 
 t('不排班的堂次擋下報名', () => {
   sched().getRange(rowOf(4), 4).setValue(false);
   sched().getRange(rowOf(4), 3).setValue('停課');
-  errIncludes(mutate_('signup', '李築善', 4), '不用排值日生');
+  errIncludes(mutate_('signup', '林志豪', 4), '不用排值日生');
   sched().getRange(rowOf(4), 4).setValue(true);
   sched().getRange(rowOf(4), 3).setValue('');
 });
@@ -397,7 +397,7 @@ t('手改日期（補課調到別天）立刻生效', () => {
   sched().getRange(rowOf(5), 2).setValue('2027-03-18');
   const w = weekOf(buildState_(), 5);
   eq(w.date, '2027-03-18');
-  ok(mutate_('signup', '李築善', 5).ok, '改過日期的堂次仍可報名');
+  ok(mutate_('signup', '林志豪', 5).ok, '改過日期的堂次仍可報名');
 });
 
 t('手動加一列就多一堂課', () => {
@@ -406,7 +406,7 @@ t('手動加一列就多一堂課', () => {
   const st = buildState_();
   eq(st.weeks.length, last + 1);
   eq(st.weeks[last].date, '2027-06-22');
-  ok(mutate_('signup', '顏淑琦', last + 1).ok, '新加的一堂應該可以報名');
+  ok(mutate_('signup', '蔡佩珊', last + 1).ok, '新加的一堂應該可以報名');
 });
 
 section('手改 vs. 特殊安排：重建後誰說了算');
@@ -450,14 +450,14 @@ const line = buildLineText_();
 t('每一堂都有一行', () => eq(line.split('\n').filter(l => /^\d\d、/.test(l)).length, 18));
 t('標出不用排值日生的日期', () => ok(line.includes('(社大公民週) --> 不用排值日生'), line));
 t('標出徵求代班中', () => {
-  ok(requestSub_('錢芸惠', 1).ok, '應能徵求代班');
-  ok(buildLineText_().includes('⚠錢芸惠 徵求代班中'), buildLineText_().split('\n')[2]);
-  cancelSub_('錢芸惠', 1);
+  ok(requestSub_('王小明', 1).ok, '應能徵求代班');
+  ok(buildLineText_().includes('⚠王小明 徵求代班中'), buildLineText_().split('\n')[2]);
+  cancelSub_('王小明', 1);
 });
 
 section('稽核');
 t('每筆異動都有紀錄', () => ok(sheetRows('操作紀錄').length > 20, '僅 ' + sheetRows('操作紀錄').length + ' 筆'));
-t('代班紀錄含「代替」備註', () => ok(sheetRows('操作紀錄').some(r => r[1] === '代班' && String(r[5]).includes('代替 宓敦'))));
+t('代班紀錄含「代替」備註', () => ok(sheetRows('操作紀錄').some(r => r[1] === '代班' && String(r[5]).includes('代替 黃俊傑'))));
 
 console.log(`\n=== ${pass} 通過 / ${fail} 失敗 ===`);
 process.exit(fail ? 1 : 0);
