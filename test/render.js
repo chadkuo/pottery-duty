@@ -53,7 +53,7 @@ window.prompt = () => promptAnswer;
 
   section('載入與版面');
   t('標題與副標來自設定', () => {
-    eq($('#title').textContent, '大同週二拉坏班');
+    eq($('#title').textContent, '週二陶藝班');
     const sub = $('#subtitle').textContent;
     ok(sub.includes('每週二 14:00–17:00'), sub);
     ok(sub.includes('共 18 堂'), sub);

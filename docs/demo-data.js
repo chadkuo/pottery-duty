@@ -6,7 +6,7 @@
 window.DUTY_DEMO = function () {
   // ── 對應試算表「設定」 ────────────────────────────────
   var cfg = {
-    className: '大同週二拉坏班',
+    className: '週二陶藝班',
     semester: '2026 秋季班（展示模式）',
     firstDate: '2026-09-01',
     totalLessons: 18,

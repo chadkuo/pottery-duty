@@ -60,8 +60,14 @@ Google 試算表（6 張工作表）              ← 所有設定與資料，�
 > （王小明、陳美玲…）。班上同學的真實姓名只存在**你的 Google 試算表**裡，不會出現在 GitHub 上。
 >
 > 本機另外有一份 `local/Code.gs`，內容跟 `apps-script/Code.gs` 完全一樣，
-> 只是把示範姓名換回真實的班級名單。**要貼進 Apps Script 的是 `local/Code.gs` 那一份。**
+> 只是把示範姓名與班級名稱換回真實的。**要貼進 Apps Script 的是 `local/Code.gs` 那一份。**
 > `local/` 已列入 `.gitignore`，不會被推上去。
+>
+> 改完 `apps-script/Code.gs` 後，跑 `python3 local/sync.py` 重新產生 `local/Code.gs`。
+> 對應關係放在 `local/name-map.json`。
+>
+> 另外，這些只是**示範資料**。實際的班級名稱、成員、堂數都放在你的試算表裡，
+> 想改班級名稱就改「設定 → 班級名稱」那一格，不用動程式、不用重新部署。
 
 ### 1. 建立試算表與後端
 
@@ -304,7 +310,10 @@ Apps Script 函式選 **`installTriggers`** → 執行。
 pottery-duty/
 ├── apps-script/
 │   └── Code.gs          後端：排班表產生器、報名／代班 API、自動提醒、LINE 公告產生器
-├── local/               ← 含真實班級名單的 Code.gs，已 gitignore，不會上傳
+├── local/               ← 已 gitignore，不會上傳
+│   ├── Code.gs          含真實姓名的版本，要貼進 Apps Script 的是這份
+│   ├── name-map.json    化名 ↔ 真實姓名的對應
+│   └── sync.py          由 apps-script/Code.gs 重新產生 local/Code.gs
 ├── docs/                ← GitHub Pages 就是發布這個資料夾
 │   ├── index.html       前端：整頁 UI，無框架、無相依套件
 │   ├── config.js        唯一要改的設定（後端網址）
