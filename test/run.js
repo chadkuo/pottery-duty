@@ -444,6 +444,87 @@ t('寫進「特殊安排」才會永久生效', () => {
 });
 
 // ===========================================================================
+section('清空所有值日生');
+
+t('先把排班填回來以便測試', () => {
+  seedInitialAssignments_();
+  const n = buildState_().weeks.reduce((a, w) => a + w.slots.filter(Boolean).length, 0);
+  ok(n > 0, '應該要有人才測得出清空');
+});
+
+t('確認視窗會列出將被清掉的名額與堂數', () => {
+  dialogs.length = 0;
+  ui.answer = 'CANCEL';
+  clearAllDuties();
+  ui.answer = 'OK';
+  const d = dialogs[0];
+  eq(d.title, '清空所有值日生');
+  eq(d.buttons, 'OK_CANCEL');
+  ok(/會清掉　\d+ 個名額/.test(d.msg), d.msg);
+  ok(d.msg.includes('保留　　日期、說明'), d.msg);
+});
+
+t('按取消完全不動作', () => {
+  const before = JSON.stringify(buildState_().weeks);
+  const sheets = Object.keys(ss.sheets).length;
+  ui.answer = 'CANCEL';
+  clearAllDuties();
+  ui.answer = 'OK';
+  eq(JSON.stringify(buildState_().weeks), before, '排班不該改變');
+  eq(Object.keys(ss.sheets).length, sheets, '不該產生備份');
+});
+
+let beforeClear;
+t('確定後值日生全部清空', () => {
+  beforeClear = buildState_().weeks.map(w => [w.date, w.label, w.needsDuty]);
+  clearAllDuties();
+  const st = buildState_();
+  eq(st.weeks.reduce((a, w) => a + w.slots.filter(Boolean).length, 0), 0);
+  Object.keys(st.counts).forEach(n => eq(st.counts[n], 0, n + ' 的次數應歸零'));
+});
+
+t('日期、說明、需排值日生的勾選都保留', () => {
+  const after = buildState_().weeks.map(w => [w.date, w.label, w.needsDuty]);
+  eq(after, beforeClear, '清空前後這三欄應完全相同');
+  ok(after.some(w => w[2] === false && w[1]), '不排班的堂次與說明應該還在');
+});
+
+t('學員名單不受影響', () => ok(buildState_().roster.includes('王小明')));
+
+t('清空前的排班留在備份工作表裡', () => {
+  const backups = Object.keys(ss.sheets).filter(n => n.indexOf('排班表 備份') === 0);
+  const rows = ss.getSheetByName(backups[backups.length - 1]).getDataRange().getValues();
+  ok(rows.some(r => r.includes('王小明')), '備份裡應該找得到清空前的名字');
+});
+
+t('清空會讓進行中的代班徵求失效', () => {
+  mutate_('signup', '王小明', 5);
+  requestSub_('王小明', 5);
+  ok(weekOf(buildState_(), 5).subs.includes('王小明'), '應先處於徵求中');
+  clearAllDuties();
+  eq(weekOf(buildState_(), 5).subs, []);
+});
+
+t('清空後全班可以重新報名', () => {
+  const res = mutate_('signup', '林志豪', 5);
+  ok(res.ok, res.error);
+  eq(weekOf(res, 5).slots, ['林志豪', '', '']);
+});
+
+t('已經是空的時候會直接說不用清', () => {
+  mutate_('cancel', '林志豪', 5);
+  dialogs.length = 0;
+  const r = clearAllDuties();
+  ok(String(r).includes('沒有任何值日生'), String(r));
+  eq(dialogs.length, 1, '只該跳一個說明視窗，不該問確認');
+  eq(dialogs[0].buttons, 'OK');
+});
+
+t('清空有寫進操作紀錄', () => {
+  ok(sheetRows('操作紀錄').some(r => r[1] === '清空所有值日生'));
+});
+
+// ===========================================================================
 section('API 進入點');
 const post = b => JSON.parse(doPost({ postData: { contents: JSON.stringify(b) } }));
 t('read 可用', () => eq(post({ action: 'read' }).weeks.length, 18));
@@ -465,6 +546,7 @@ const line = buildLineText_();
 t('每一堂都有一行', () => eq(line.split('\n').filter(l => /^\d\d、/.test(l)).length, 18));
 t('標出不用排值日生的日期', () => ok(line.includes('(社大公民週) --> 不用排值日生'), line));
 t('標出徵求代班中', () => {
+  if (!weekOf(buildState_(), 1).slots.includes('王小明')) mutate_('signup', '王小明', 1);
   ok(requestSub_('王小明', 1).ok, '應能徵求代班');
   ok(buildLineText_().includes('⚠王小明 徵求代班中'), buildLineText_().split('\n')[2]);
   cancelSub_('王小明', 1);

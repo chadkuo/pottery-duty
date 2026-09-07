@@ -1167,6 +1167,7 @@ function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('值日生')
     .addItem('依設定重建排班表', 'rebuildSchedule')
+    .addItem('清空所有值日生（重新排班）', 'clearAllDuties')
     .addSeparator()
     .addItem('產生 LINE 公告文字', 'showLineText')
     .addSeparator()
@@ -1174,6 +1175,76 @@ function onOpen() {
     .addItem('立即寄出進度給班長', 'sendWeeklyStatusToLeader')
     .addItem('重新建立自動提醒排程', 'installTriggers')
     .addToUi();
+}
+
+/**
+ * 選單「清空所有值日生」。
+ * 只清掉值日生欄位，日期、說明、需排值日生的勾選都保留。
+ * 一樣是先問過再動手，動手前自動備份。
+ */
+function clearAllDuties() {
+  var ui;
+  try { ui = SpreadsheetApp.getUi(); } catch (e) { ui = null; }
+
+  var cfg = getConfig_();
+  var weeks = readSchedule_(cfg.perWeek);
+
+  var filled = [];
+  weeks.forEach(function (w) {
+    var names = w.slots.filter(function (n) { return n; });
+    if (names.length) filled.push({ date: w.date, no: w.no, names: names });
+  });
+  var totalNames = filled.reduce(function (a, f) { return a + f.names.length; }, 0);
+
+  if (!totalNames) {
+    var none = '排班表上目前沒有任何值日生，不需要清空。';
+    if (ui) ui.alert('清空所有值日生', none, ui.ButtonSet.OK); else Logger.log(none);
+    return none;
+  }
+
+  var msg = [
+    '將清掉排班表上所有的值日生，讓全班重新排一次。',
+    '',
+    '　會清掉　' + totalNames + ' 個名額（' + filled.length + ' 堂）',
+    '　保留　　日期、說明、需排值日生的勾選、學員名單',
+    ''
+  ];
+  filled.slice(0, 10).forEach(function (f) {
+    msg.push('　' + f.date + '　' + f.names.join('、'));
+  });
+  if (filled.length > 10) msg.push('　…以及其他 ' + (filled.length - 10) + ' 堂');
+  msg.push('');
+  msg.push('動手前會自動備份，按錯了也救得回來。');
+  msg.push('');
+  msg.push('確定要清空嗎？');
+
+  if (ui) {
+    var answer = ui.alert('清空所有值日生', msg.join('\n'), ui.ButtonSet.OK_CANCEL);
+    if (answer !== ui.Button.OK) return;
+  }
+
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(20000)) throw new Error('系統忙碌中，請稍後再試');
+
+  try {
+    var backup = backupScheduleSheet_();
+    var sh = getScheduleSheet_();
+    weeks.forEach(function (w) {
+      sh.getRange(w.row, COL_SLOT1, 1, cfg.perWeek)
+        .setValues([w.slots.map(function () { return ''; })]);
+    });
+    SpreadsheetApp.flush();
+    voidStaleSubRequests_(cfg);
+    appendLog_('清空所有值日生', '', '', '', '共 ' + totalNames + ' 個名額，備份於「' + backup + '」');
+    SpreadsheetApp.flush();
+
+    var done = '已清空 ' + totalNames + ' 個名額，全班可以重新排了。' +
+      (backup ? '\n\n舊的排班已備份為工作表「' + backup + '」。\n確認沒問題後可以自行刪掉。' : '');
+    if (ui) ui.alert('清空完成', done, ui.ButtonSet.OK); else Logger.log(done);
+    return done;
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function buildLineText_() {
