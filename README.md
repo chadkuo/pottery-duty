@@ -398,7 +398,13 @@ token 放**指令碼屬性**不放試算表 —— 試算表會被複製、匯�
 sh tools/install-hooks.sh      # clone 之後跑一次，hooks 不會跟著 git 走
 ```
 
-它裝兩個 hook，比對 `local/real-names.txt`（一行一個名字，不進 git）：
+**本機不存任何名字。** 名單是班長每學期維護的東西，真正的來源是試算表；
+在這裡再養一份副本只會過期，而且讓個資多出現一個地方。
+所以 hook 每次 commit 直接跟正式環境的 API 要一次名單，用完就丟。
+
+`local/api-url.txt` 放正式部署的 `/exec` 網址（那是網址，不是個資，而且不進 git）。
+
+它裝兩個 hook：
 
 | hook | 檢查什麼 |
 |---|---|
@@ -408,7 +414,8 @@ sh tools/install-hooks.sh      # clone 之後跑一次，hooks 不會跟著 git 
 命中就擋下 commit，並指出檔案與行號（名字只顯示第一個字，終端機紀錄不會留下完整姓名）。
 確定是誤判：`git commit --no-verify`。
 
-`local/real-names.txt` 不存在時直接放行 —— 別人 clone 這個 repo 不該被陌生的檢查擋住。
+連不上、或沒有 `local/api-url.txt` 時會警告並放行 —— 不能因為沒網路就不讓人 commit，
+別人 clone 這個 repo 也不該被陌生的檢查擋住。
 
 ---
 

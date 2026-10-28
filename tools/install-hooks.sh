@@ -21,9 +21,8 @@ HOOK
 chmod +x "$hooks/pre-commit" "$hooks/commit-msg"
 echo "已安裝 pre-commit 與 commit-msg hook"
 
-if [ -f "$root/local/real-names.txt" ]; then
-  n=$(grep -cve '^\s*$' -e '^\s*#' "$root/local/real-names.txt" || true)
-  echo "名單：local/real-names.txt（$n 個名字）"
+if [ -f "$root/local/api-url.txt" ]; then
+  echo "名單來源：local/api-url.txt（每次 commit 現場跟正式環境要一次）"
 else
-  echo "⚠ 還沒有 local/real-names.txt —— 名單是空的，檢查不會擋下任何東西"
+  echo "⚠ 還沒有 local/api-url.txt —— 檢查會警告並放行，不會擋下任何東西"
 fi
