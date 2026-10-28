@@ -55,6 +55,8 @@ var LINE_CONFIG_ROWS = [
   ['LINE 查詢關鍵字', '值日生', '群組裡打到這幾個字，bot 就回覆最新名單。回覆不計費，次數無上限'],
   ['LINE 關鍵字比對方式', '完全相同', '完全相同 / 開頭 / 包含。群組裡「值日生」本來就是日常用語，設成「包含」會一直跳出來'],
   ['LINE 回覆顯示堂數', 2, '群組查詢時回覆接下來幾堂。停課的那幾週照樣會列出來，但不佔名額'],
+  ['LINE 推播顯示堂數', 4, '主動推播時列出接下來幾堂。推播按則數計費不按字數，多列幾堂不加價，'
+   + '而且缺人要夠早被看見才來得及補'],
   ['排班網頁網址', '', '（選填）填了的話，LINE 回覆最後會附上這個連結。⚠ 要填「正式」那個部署對應的網頁，不要填測試的']
 ];
 
@@ -264,6 +266,7 @@ function getConfig_() {
     lineKeyword:   String(map['LINE 查詢關鍵字'] || '值日生').trim(),
     lineMatch:     String(map['LINE 關鍵字比對方式'] || '完全相同').trim(),
     lineReplyAhead: Math.max(1, Number(map['LINE 回覆顯示堂數']) || 2),
+    linePushAhead:  Math.max(1, Number(map['LINE 推播顯示堂數']) || 4),
     siteUrl:       String(map['排班網頁網址'] || '').trim()
   };
 }
@@ -1154,6 +1157,7 @@ function sendTodayDutyReminder() {
 function sendWeeklyStatusToLeader() {
   var cfg = getConfig_();
   if (!cfg.leaderEmail) return;
+  if (!hasUpcomingLesson_()) return;   // 學期結束後別再每週寄同一封
 
   var state = buildState_();
   var today = state.today;
@@ -1279,21 +1283,44 @@ function lineGroupSize_(groupId) {
 }
 
 /**
+ * 挑出接下來幾堂。
+ * 停課週照樣列出來（同學需要知道那天不用來），但不佔名額 ——
+ * 否則碰到連假時，一次只看得到一堂真正要排班的課。
+ */
+function upcomingWeeks_(state, ahead) {
+  var today = todayStr_();
+  var want  = Math.max(1, ahead);
+  var out = [], counted = 0;
+  state.weeks.forEach(function (w) {
+    if (w.date < today || counted >= want) return;
+    out.push(w);
+    if (w.needsDuty) counted++;
+  });
+  return out;
+}
+
+/**
+ * 學期還有沒有未來的課。寒暑假期間用來把自動通知整個靜音 ——
+ * 觸發器是「每週幾」的，學期結束後它照樣每週醒來，不擋的話：
+ *   推播 → 58 個人每兩週收到一次「已經沒有未來的課程了」，每次扣 58 則
+ *   進度信 → 班長每週收到一封「還有 N 人沒排滿」，而且永遠不會變
+ * 換下個學期、重建排班表之後，自己就會恢復。
+ */
+function hasUpcomingLesson_() {
+  var today = todayStr_();
+  return readSchedule_(getConfig_().perWeek).some(function (w) {
+    return w.needsDuty && w.date >= today;
+  });
+}
+
+/**
  * 給 LINE 看的簡短名單：只列接下來幾堂，不是整學期。
  * 整學期 18 行在手機上要滑很久，而且代班換人之後舊訊息就過期了。
  */
 function buildLineDigest_(ahead) {
   var state = buildState_();
   var today = todayStr_();
-  // 停課週照樣列出來（同學需要知道那天不用來），但不佔「接下來幾堂」的名額，
-  // 否則碰到連假時，問一次只看得到一堂真正要排班的課。
-  var want = Math.max(1, ahead);
-  var upcoming = [], counted = 0;
-  state.weeks.forEach(function (w) {
-    if (w.date < today || counted >= want) return;
-    upcoming.push(w);
-    if (w.needsDuty) counted++;
-  });
+  var upcoming = upcomingWeeks_(state, ahead);
 
   // 連結放最後一行。LINE 會自動變成可點的，不需要額外處理。
   var cfg  = getConfig_();
@@ -1318,6 +1345,52 @@ function buildLineDigest_(ahead) {
     lines.push(line);
   });
   return lines.concat(foot).join('\n');
+}
+
+/**
+ * 推播用的版面。跟查詢回覆刻意分開，因為兩者的讀者不同：
+ *
+ *   查詢 → 有人正在問，要的是快速答案，越短越好。
+ *   推播 → 一次送到 58 支手機，其中只有六個人跟內容有關。
+ *
+ * 所以推播把名字獨立成行：擠在日期後面的話，手機寬度不夠會從名字中間硬斷
+ * （三個字的名字被拆到兩行），而被切爛的恰好是最該被看見的部分。
+ * 結尾那行總結是寫給「不是值日生的那五十幾個人」看的 —— 不然這則訊息對他們
+ * 只是噪音。
+ */
+function buildLinePushText_(ahead) {
+  var cfg      = getConfig_();
+  var state    = buildState_();
+  var upcoming = upcomingWeeks_(state, ahead);
+  if (!upcoming.length) return '';   // 學期已結束；呼叫端擋過了，這裡只是保險
+
+  var lines = ['📋 值日生提醒（每 ' + cfg.linePushEvery + ' 週自動發送）', ''];
+  var short = 0;
+
+  upcoming.forEach(function (w) {
+    lines.push(w.date.slice(5).replace('-', '/') + '（' + weekdayCh_(w.date) + '）第 ' + w.no + ' 堂');
+
+    if (!w.needsDuty) { lines.push('　' + (w.label || '不用排值日生')); return; }
+
+    var filled = w.slots.filter(function (n) { return n; });
+    var lack   = state.perWeek - filled.length;
+    short += Math.max(0, lack);
+
+    if (!filled.length) lines.push('　⚠ 還沒有人，缺 ' + lack + ' 位');
+    else lines.push('　' + filled.join('、') + (lack > 0 ? '　⚠ 還缺 ' + lack + ' 位' : ''));
+
+    if (w.subs.length) lines.push('　⚠ ' + w.subs.join('、') + ' 徵求代班中');
+  });
+
+  lines.push('');
+  if (short > 0) {
+    lines.push('這幾堂共缺 ' + short + ' 位' + (cfg.siteUrl ? ' 👉 ' + cfg.siteUrl : '，請到排班網頁認領'));
+  } else {
+    lines.push('這幾堂都排滿了，謝謝大家 🎉');
+  }
+  if (cfg.lineKeyword) lines.push('平常想查：在群組打「' + cfg.lineKeyword + '」');
+
+  return lines.join('\n');
 }
 
 /**
@@ -1347,11 +1420,14 @@ function handleLineWebhook_(body) {
     if (!ev || ev.type !== 'message' || !ev.message || ev.message.type !== 'text') return;
     if (!ev.replyToken) return;
 
-    // 還沒設定群組 ID 時，把它記進「操作紀錄」，班長才找得到要填什麼
-    var gid = ev.source && ev.source.groupId;
-    if (gid && !cfg.lineGroupId) appendLog_('LINE 群組 ID', '', '', '', gid);
-
     if (!lineKeywordHit_(ev.message.text, cfg.lineKeyword, cfg.lineMatch)) return;
+
+    // 把「不是目前設定的那個群組」的 ID 記進「操作紀錄」，班長才找得到要填什麼。
+    // 刻意不是「只在還沒設定時記錄」—— 先在測試群組抓過 ID、之後想換成正式群組時，
+    // 那樣會因為欄位已經有值而什麼都不記，只能先把設定清空，很容易卡住。
+    // 放在關鍵字判斷之後：只有真的有人在用 bot 才記，否則群組裡每一句閒聊都會寫一列。
+    var gid = ev.source && ev.source.groupId;
+    if (gid && gid !== cfg.lineGroupId) appendLog_('LINE 群組 ID', '', '', '', gid);
 
     lineReply_(ev.replyToken, buildLineDigest_(cfg.lineReplyAhead));
   });
@@ -1369,6 +1445,7 @@ function pushRosterToGroup() {
   if (!cfg.linePushOn)    return '未啟用 LINE 推播';
   if (!cfg.lineGroupId)   return '「設定」裡還沒填 LINE 群組 ID';
   if (!lineToken_())      return '尚未設定 ' + LINE_TOKEN_KEY;
+  if (!hasUpcomingLesson_()) return '學期已結束（沒有未來的課程），略過推播';
 
   var props = PropertiesService.getScriptProperties();
   var last  = props.getProperty(LINE_LAST_PUSH) || '';
@@ -1391,7 +1468,7 @@ function pushRosterToGroup() {
     return '本月額度剩 ' + left + ' 則，不足 ' + need + ' 則，已改寄信通知班長';
   }
 
-  linePush_(cfg.lineGroupId, buildLineDigest_(cfg.linePushEvery + 1));
+  linePush_(cfg.lineGroupId, buildLinePushText_(cfg.linePushAhead));
   props.setProperty(LINE_LAST_PUSH, today);
   appendLog_('LINE 推播', '', '', today, '群組 ' + (size || '?') + ' 人，推播後剩約 ' + (left - (size || 0)) + ' 則');
   return '已推播給群組（' + (size || '?') + ' 人）';

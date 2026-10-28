@@ -710,6 +710,28 @@ t('還沒設定 token 時不會讓 webhook 回非 200', () => {
   eq(post(textEvent('值日生')).ok, true);
   eq(calls('/message/reply').length, 0);
 });
+t('群組閒聊不會把「操作紀錄」灌爆', () => {
+  resetLine(); lineStub(); scriptProps.set('LINE_CHANNEL_TOKEN', 'tok');
+  setCfg('LINE 群組 ID', '');                      // 尚未設定 = 最愛記錄的狀態
+  const before = sheetRows('操作紀錄').length;
+  ['晚安', '明天要帶什麼', '哈哈哈'].forEach(txt => post(textEvent(txt)));
+  eq(sheetRows('操作紀錄').length, before);
+});
+t('已設定的群組 ID 不會重複記錄', () => {
+  resetLine(); lineStub(); scriptProps.set('LINE_CHANNEL_TOKEN', 'tok');
+  setCfg('LINE 群組 ID', 'Gxxx');
+  const before = sheetRows('操作紀錄').filter(r => r[1] === 'LINE 群組 ID').length;
+  post(textEvent('值日生'));
+  eq(sheetRows('操作紀錄').filter(r => r[1] === 'LINE 群組 ID').length, before);
+});
+t('換到另一個群組時會記下新的 ID', () => {
+  resetLine(); lineStub(); scriptProps.set('LINE_CHANNEL_TOKEN', 'tok');
+  setCfg('LINE 群組 ID', 'Gxxx');                       // 已設定成測試群組
+  post(textEvent('值日生', { source: { groupId: 'Gzzz' } }));  // 從正式群組來的訊息
+  ok(sheetRows('操作紀錄').some(r => r[1] === 'LINE 群組 ID' && String(r[5]) === 'Gzzz'),
+     '新群組的 ID 要記下來');
+  setCfg('LINE 群組 ID', '');
+});
 t('群組 ID 未設定時自動記進操作紀錄', () => {
   resetLine(); lineStub(); scriptProps.set('LINE_CHANNEL_TOKEN', 'tok');
   setCfg('LINE 群組 ID', '');
@@ -780,12 +802,73 @@ t('一切就緒時會推，並記下推播日期', () => {
   eq(calls('/message/push').length, 1);
   eq(scriptProps.get('LINE_LAST_PUSH_DATE'), todayStr_());
 });
-t('推播內容涵蓋的堂數比間隔多一堂（不留空窗）', () => {
-  readyToPush(); setCfg('LINE 推播間隔週數', 2);
+t('推播堂數依「LINE 推播顯示堂數」設定', () => {
+  readyToPush(); setCfg('LINE 推播顯示堂數', 4);
   pushRosterToGroup();
   const text = calls('/message/push')[0].body.messages[0].text;
-  const future = buildState_().weeks.filter(w => w.date >= todayStr_()).slice(0, 3);
+  const future = buildState_().weeks.filter(w => w.date >= todayStr_()).slice(0, 4);
   future.forEach(w => ok(text.includes(w.date.slice(5).replace('-', '/')), '應含 ' + w.date));
+});
+t('推播版面把名字獨立成行（手機才不會切斷名字）', () => {
+  readyToPush();
+  pushRosterToGroup();
+  const lines = calls('/message/push')[0].body.messages[0].text.split('\n');
+  const dateLine = lines.findIndex(l => /^\d\d\/\d\d（/.test(l));
+  ok(dateLine >= 0, '找不到日期行');
+  ok(!/、/.test(lines[dateLine]), '日期行不該出現名字：' + lines[dateLine]);
+  ok(lines[dateLine + 1].startsWith('\u3000'), '名字那行要縮排：' + lines[dateLine + 1]);
+});
+t('推播結尾會總結還缺幾位', () => {
+  readyToPush();
+  // 清掉第一堂未來課程的值日生，製造缺額
+  const w = buildState_().weeks.find(x => x.needsDuty && x.date >= todayStr_());
+  const before = w.slots.slice();
+  before.forEach((_, i) => sched().getRange(rowOf(w.no), 5 + i).setValue(''));
+
+  pushRosterToGroup();
+  const text = calls('/message/push')[0].body.messages[0].text;
+  ok(/這幾堂共缺 \d+ 位/.test(text), '結尾要有總結：\n' + text);
+  ok(text.includes('還沒有人'), '全空的那堂要標出來');
+
+  before.forEach((n, i) => sched().getRange(rowOf(w.no), 5 + i).setValue(n));
+});
+t('推播與查詢用不同版面', () => {
+  readyToPush();
+  pushRosterToGroup();
+  const push = calls('/message/push')[0].body.messages[0].text;
+  ok(push.includes('自動發送'), '推播要標明是自動發的');
+  ok(!buildLineDigest_(2).includes('自動發送'), '查詢回覆不該有這句');
+});
+t('學期結束（寒暑假）就不推播，也不扣額度', () => {
+  readyToPush();
+  const weeks = buildState_().weeks;
+  weeks.forEach(w => sched().getRange(rowOf(w.no), 4).setValue(false));   // 整學期都沒課了
+
+  const msg = pushRosterToGroup();
+  ok(msg.includes('學期已結束'), msg);
+  eq(calls('/message/push').length, 0);
+  eq(scriptProps.get('LINE_LAST_PUSH_DATE'), undefined);   // 也不要記成「推過了」
+
+  weeks.forEach(w => sched().getRange(rowOf(w.no), 4).setValue(w.needsDuty));
+});
+t('學期結束後不再每週寄進度信給班長', () => {
+  readyToPush();
+  setCfg('班長信箱', 'leader@example.test');
+  const weeks = buildState_().weeks;
+  weeks.forEach(w => sched().getRange(rowOf(w.no), 4).setValue(false));
+
+  mails.length = 0;
+  sendWeeklyStatusToLeader();
+  eq(mails.length, 0);
+
+  weeks.forEach(w => sched().getRange(rowOf(w.no), 4).setValue(w.needsDuty));
+});
+t('學期還沒結束時，進度信照常寄', () => {
+  readyToPush();
+  setCfg('班長信箱', 'leader@example.test');
+  mails.length = 0;
+  sendWeeklyStatusToLeader();
+  eq(mails.length, 1);
 });
 t('間隔未滿就略過', () => {
   readyToPush();
