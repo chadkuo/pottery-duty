@@ -384,6 +384,34 @@ token 放**指令碼屬性**不放試算表 —— 試算表會被複製、匯�
 
 ---
 
+## 姓名防護
+
+這個 repo 是公開的，所以示範資料一律用化名，真名只存在本機（`local/`，已在 `.gitignore`）。
+
+但 `local/sync.py` 只保護 `apps-script/Code.gs`。真名會從別的地方滲進來 ——
+從截圖抄一個名字當註解的例子、commit message 裡貼一段 log、README 舉例。
+這些都發生過，而且是推上去之後才發現。
+
+所以加了 git hook：
+
+```bash
+sh tools/install-hooks.sh      # clone 之後跑一次，hooks 不會跟著 git 走
+```
+
+它裝兩個 hook，比對 `local/real-names.txt`（一行一個名字，不進 git）：
+
+| hook | 檢查什麼 |
+|---|---|
+| `pre-commit` | 所有 stage 的檔案內容 + 檔名 |
+| `commit-msg` | commit message |
+
+命中就擋下 commit，並指出檔案與行號（名字只顯示第一個字，終端機紀錄不會留下完整姓名）。
+確定是誤判：`git commit --no-verify`。
+
+`local/real-names.txt` 不存在時直接放行 —— 別人 clone 這個 repo 不該被陌生的檢查擋住。
+
+---
+
 ## ⚠️ 改完程式碼記得重新部署
 
 Apps Script 有兩套執行路徑，很容易踩：
