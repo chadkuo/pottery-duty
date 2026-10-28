@@ -4,7 +4,7 @@
  */
 const path = require('path');
 const fs = require('fs');
-const { ss, mails, dialogs, ui } = require('./mock.js');
+const { ss, mails, dialogs, ui, scriptProps, fetchLog, setFetch } = require('./mock.js');
 eval(fs.readFileSync(path.join(__dirname, '..', 'apps-script', 'Code.gs'), 'utf8'));
 
 let pass = 0, fail = 0, group = '';
@@ -555,6 +555,300 @@ t('標出徵求代班中', () => {
 section('稽核');
 t('每筆異動都有紀錄', () => ok(sheetRows('操作紀錄').length > 20, '僅 ' + sheetRows('操作紀錄').length + ' 筆'));
 t('代班紀錄含「代替」備註', () => ok(sheetRows('操作紀錄').some(r => r[1] === '代班' && String(r[5]).includes('代替 黃俊傑'))));
+
+// ===========================================================================
+section('LINE：入口分流');
+
+/** 讓 UrlFetchApp 照 LINE 的 API 回應。改 opts 就能模擬額度用盡、群組變大。 */
+function lineStub(opts) {
+  const o = Object.assign({ quota: 200, used: 0, size: 58, fail: null }, opts || {});
+  setFetch((url) => {
+    if (o.fail && url.includes(o.fail.path)) return { code: o.fail.code, text: o.fail.text || '{}' };
+    if (url.endsWith('/message/quota'))             return { code: 200, text: JSON.stringify({ type: 'limited', value: o.quota }) };
+    if (url.endsWith('/message/quota/consumption')) return { code: 200, text: JSON.stringify({ totalUsage: o.used }) };
+    if (url.includes('/members/count'))             return { code: 200, text: JSON.stringify({ count: o.size }) };
+    return { code: 200, text: '{}' };
+  });
+}
+const resetLine = () => { fetchLog.length = 0; scriptProps.clear(); mails.length = 0; };
+const textEvent = (text, extra) => ({
+  events: [Object.assign({
+    type: 'message', replyToken: 'rt-1',
+    source: { type: 'group', groupId: 'Gxxx' },
+    message: { type: 'text', text },
+  }, extra || {})],
+});
+const calls = path => fetchLog.filter(f => f.url.includes(path));
+
+resetLine(); lineStub();
+scriptProps.set('LINE_CHANNEL_TOKEN', 'tok');
+setCfg('LINE 查詢關鍵字', '值日生');
+
+t('LINE webhook 一律回 200 ok', () => eq(post(textEvent('值日生')).ok, true));
+t('前端請求不受影響', () => eq(post({ action: 'read' }).ok, true));
+t('未知 action 仍回錯誤（沒有被誤判成 webhook）', () => errIncludes(post({ action: '亂打' }), '未知的動作'));
+t('壞掉的 webhook 不會讓服務掛掉', () => {
+  resetLine(); lineStub(); scriptProps.set('LINE_CHANNEL_TOKEN', 'tok');
+  eq(post({ events: [null, { type: 'message' }, { type: 'join' }] }).ok, true);
+});
+
+section('LINE：關鍵字回覆（reply，不計費）');
+
+t('打到關鍵字就回覆', () => {
+  resetLine(); lineStub(); scriptProps.set('LINE_CHANNEL_TOKEN', 'tok');
+  post(textEvent('值日生'));
+  eq(calls('/message/reply').length, 1);
+});
+t('預設不會被「句子裡剛好提到」觸發', () => {
+  resetLine(); lineStub(); scriptProps.set('LINE_CHANNEL_TOKEN', 'tok');
+  post(textEvent('今天值日生很不OK~'));
+  eq(fetchLog.length, 0);
+});
+t('結尾的問號、波浪號不影響比對', () => {
+  resetLine(); lineStub(); scriptProps.set('LINE_CHANNEL_TOKEN', 'tok');
+  ['值日生？', '值日生?', '值日生~', ' 值日生 '].forEach(txt => post(textEvent(txt)));
+  eq(calls('/message/reply').length, 4);
+});
+t('比對方式「開頭」：開頭符合才回', () => {
+  resetLine(); lineStub(); scriptProps.set('LINE_CHANNEL_TOKEN', 'tok');
+  setCfg('LINE 關鍵字比對方式', '開頭');
+  post(textEvent('值日生是誰'));
+  eq(calls('/message/reply').length, 1);
+  post(textEvent('今天值日生'));
+  eq(calls('/message/reply').length, 1);
+});
+t('回覆堂數依「LINE 回覆顯示堂數」設定', () => {
+  resetLine(); lineStub(); scriptProps.set('LINE_CHANNEL_TOKEN', 'tok');
+  setCfg('LINE 回覆顯示堂數', 2);
+  post(textEvent('值日生'));
+  const lines = calls('/message/reply')[0].body.messages[0].text.split('\n');
+  // 標題 1 行 + 2 堂（代班提醒會再多行，所以用區間判斷）
+  ok(lines.length >= 3 && lines.length <= 5, '行數不對：' + lines.length);
+});
+t('停課那週照樣列出來，但不佔名額', () => {
+  resetLine(); lineStub(); scriptProps.set('LINE_CHANNEL_TOKEN', 'tok');
+  setCfg('LINE 回覆顯示堂數', 2);
+
+  // 把最近一堂未來的課改成停課
+  const st = buildState_();
+  const next = st.weeks.find(w => w.date >= todayStr_() && w.needsDuty);
+  sched().getRange(rowOf(next.no), 3).setValue('颱風停課');
+  sched().getRange(rowOf(next.no), 4).setValue(false);
+
+  post(textEvent('值日生'));
+  const text = calls('/message/reply')[0].body.messages[0].text;
+  ok(text.includes('颱風停課'), '停課那堂要列出來');
+
+  // 停課不佔名額：後面仍有 2 堂真正要排班的課
+  const after = buildState_().weeks
+    .filter(w => w.date >= todayStr_() && w.needsDuty).slice(0, 2);
+  after.forEach(w => {
+    const md = w.date.slice(5).replace('-', '/');
+    ok(text.includes(md + '（'), '應該要列到 ' + md);
+  });
+
+  sched().getRange(rowOf(next.no), 3).setValue('');
+  sched().getRange(rowOf(next.no), 4).setValue(true);
+});
+t('沒填網頁網址時，回覆不會多出空行或連結', () => {
+  resetLine(); lineStub(); scriptProps.set('LINE_CHANNEL_TOKEN', 'tok');
+  setCfg('排班網頁網址', '');
+  post(textEvent('值日生'));
+  const text = calls('/message/reply')[0].body.messages[0].text;
+  ok(!text.includes('http'), '不該出現連結');
+  ok(!/\n\s*\n/.test(text), '不該留下空行');
+});
+t('填了網頁網址就附在最後一行', () => {
+  resetLine(); lineStub(); scriptProps.set('LINE_CHANNEL_TOKEN', 'tok');
+  setCfg('排班網頁網址', 'https://example.test/duty/');
+  post(textEvent('值日生'));
+  const text = calls('/message/reply')[0].body.messages[0].text;
+  eq(text.split('\n').pop(), 'https://example.test/duty/');
+  setCfg('排班網頁網址', '');
+});
+t('比對方式「包含」：回到最寬鬆的行為', () => {
+  resetLine(); lineStub(); scriptProps.set('LINE_CHANNEL_TOKEN', 'tok');
+  setCfg('LINE 關鍵字比對方式', '包含');
+  post(textEvent('今天值日生是誰'));
+  eq(calls('/message/reply').length, 1);
+});
+t('回覆內容是未來的名單，不是整學期', () => {
+  resetLine(); lineStub(); scriptProps.set('LINE_CHANNEL_TOKEN', 'tok');
+  post(textEvent('值日生'));
+  const body = calls('/message/reply')[0].body;
+  const lines = body.messages[0].text.split('\n');
+  ok(lines.length <= 1 + 3 * 2, '回覆太長：' + lines.length + ' 行');
+  ok(body.replyToken === 'rt-1', 'replyToken 要原樣帶回');
+});
+t('只列今天以後的堂次', () => {
+  resetLine(); lineStub(); scriptProps.set('LINE_CHANNEL_TOKEN', 'tok');
+  post(textEvent('值日生'));
+  const text = calls('/message/reply')[0].body.messages[0].text;
+  const past = buildState_().weeks.filter(w => w.date < todayStr_());
+  past.forEach(w => {
+    const md = w.date.slice(5).replace('-', '/');
+    ok(!text.includes(md + '（'), '不該出現已過去的 ' + md);
+  });
+});
+t('沒打到關鍵字就完全不呼叫 API', () => {
+  resetLine(); lineStub(); scriptProps.set('LINE_CHANNEL_TOKEN', 'tok');
+  post(textEvent('今天天氣真好'));
+  eq(fetchLog.length, 0);
+});
+t('貼圖、照片不回', () => {
+  resetLine(); lineStub(); scriptProps.set('LINE_CHANNEL_TOKEN', 'tok');
+  post({ events: [{ type: 'message', replyToken: 'rt', message: { type: 'sticker' } }] });
+  eq(fetchLog.length, 0);
+});
+t('沒有 replyToken 不回', () => {
+  resetLine(); lineStub(); scriptProps.set('LINE_CHANNEL_TOKEN', 'tok');
+  post(textEvent('值日生', { replyToken: '' }));
+  eq(fetchLog.length, 0);
+});
+t('還沒設定 token 時不會讓 webhook 回非 200', () => {
+  resetLine(); lineStub();
+  eq(post(textEvent('值日生')).ok, true);
+  eq(calls('/message/reply').length, 0);
+});
+t('群組 ID 未設定時自動記進操作紀錄', () => {
+  resetLine(); lineStub(); scriptProps.set('LINE_CHANNEL_TOKEN', 'tok');
+  setCfg('LINE 群組 ID', '');
+  post(textEvent('值日生'));
+  ok(sheetRows('操作紀錄').some(r => r[1] === 'LINE 群組 ID' && String(r[5]) === 'Gxxx'));
+});
+
+section('LINE：webhook 通行碼');
+
+const postWithKey = (body, k) =>
+  JSON.parse(doPost({ parameter: k === undefined ? {} : { k }, postData: { contents: JSON.stringify(body) } }));
+
+t('沒設通行碼時照常運作', () => {
+  resetLine(); lineStub(); scriptProps.set('LINE_CHANNEL_TOKEN', 'tok');
+  postWithKey(textEvent('值日生'));
+  eq(calls('/message/reply').length, 1);
+});
+t('設了通行碼，帶對的才回應', () => {
+  resetLine(); lineStub();
+  scriptProps.set('LINE_CHANNEL_TOKEN', 'tok');
+  scriptProps.set('LINE_WEBHOOK_SECRET', 's3cret');
+  postWithKey(textEvent('值日生'), 's3cret');
+  eq(calls('/message/reply').length, 1);
+});
+t('通行碼不符就靜默略過（仍回 200，不讓 LINE 關掉 webhook）', () => {
+  resetLine(); lineStub();
+  scriptProps.set('LINE_CHANNEL_TOKEN', 'tok');
+  scriptProps.set('LINE_WEBHOOK_SECRET', 's3cret');
+  eq(postWithKey(textEvent('值日生'), '猜的').ok, true);
+  eq(fetchLog.length, 0);
+});
+t('通行碼完全沒帶也擋下', () => {
+  resetLine(); lineStub();
+  scriptProps.set('LINE_CHANNEL_TOKEN', 'tok');
+  scriptProps.set('LINE_WEBHOOK_SECRET', 's3cret');
+  postWithKey(textEvent('值日生'));
+  eq(fetchLog.length, 0);
+});
+
+section('LINE：推播守門（push，按人數計費）');
+
+function readyToPush() {
+  resetLine(); lineStub();
+  scriptProps.set('LINE_CHANNEL_TOKEN', 'tok');
+  setCfg('LINE 群組 ID', 'Gxxx');
+  setCfg('啟用 LINE 推播', 'TRUE');
+  setCfg('LINE 推播間隔週數', 2);
+}
+
+t('未啟用就不推', () => {
+  readyToPush(); setCfg('啟用 LINE 推播', 'FALSE');
+  ok(pushRosterToGroup().includes('未啟用'));
+  eq(calls('/message/push').length, 0);
+});
+t('沒填群組 ID 就不推', () => {
+  readyToPush(); setCfg('LINE 群組 ID', '');
+  ok(pushRosterToGroup().includes('群組 ID'));
+  eq(calls('/message/push').length, 0);
+});
+t('沒設 token 就不推', () => {
+  readyToPush(); scriptProps.clear();
+  ok(pushRosterToGroup().includes('LINE_CHANNEL_TOKEN'));
+  eq(calls('/message/push').length, 0);
+});
+t('一切就緒時會推，並記下推播日期', () => {
+  readyToPush();
+  ok(pushRosterToGroup().includes('已推播'));
+  eq(calls('/message/push').length, 1);
+  eq(scriptProps.get('LINE_LAST_PUSH_DATE'), todayStr_());
+});
+t('推播內容涵蓋的堂數比間隔多一堂（不留空窗）', () => {
+  readyToPush(); setCfg('LINE 推播間隔週數', 2);
+  pushRosterToGroup();
+  const text = calls('/message/push')[0].body.messages[0].text;
+  const future = buildState_().weeks.filter(w => w.date >= todayStr_()).slice(0, 3);
+  future.forEach(w => ok(text.includes(w.date.slice(5).replace('-', '/')), '應含 ' + w.date));
+});
+t('間隔未滿就略過', () => {
+  readyToPush();
+  pushRosterToGroup();
+  fetchLog.length = 0;
+  ok(pushRosterToGroup().includes('未滿'));
+  eq(calls('/message/push').length, 0);
+});
+t('間隔已滿就會再推', () => {
+  readyToPush();
+  scriptProps.set('LINE_LAST_PUSH_DATE', addDays_(todayStr_(), -21));
+  ok(pushRosterToGroup().includes('已推播'));
+});
+
+section('LINE：額度安全閥');
+
+t('額度不足就不推，改寄信給班長', () => {
+  readyToPush(); lineStub({ quota: 200, used: 150, size: 58 });  // 剩 50 < 58+20
+  setCfg('班長信箱', 'leader@example.com');
+  const msg = pushRosterToGroup();
+  ok(msg.includes('額度'), msg);
+  eq(calls('/message/push').length, 0);
+  eq(mails.length, 1);
+  ok(mails[0].subject.includes('額度不足'));
+  ok(mails[0].body.includes('不計費'), '信裡要告訴班長關鍵字查詢還能用');
+});
+t('額度不足時不會寫入推播日期（下次還會再試）', () => {
+  readyToPush(); lineStub({ quota: 200, used: 190 });
+  pushRosterToGroup();
+  eq(scriptProps.get('LINE_LAST_PUSH_DATE'), undefined);
+});
+t('額度剛好夠就推', () => {
+  readyToPush(); lineStub({ quota: 200, used: 100, size: 58 });  // 剩 100 > 58+20
+  ok(pushRosterToGroup().includes('已推播'));
+});
+t('群組人數查不到時用保守估計，不會因此卡住', () => {
+  readyToPush(); lineStub({ fail: { path: '/members/count', code: 404 } });
+  ok(pushRosterToGroup().includes('已推播'));
+});
+t('額度查不到時照推，不要安靜地什麼都沒發生', () => {
+  readyToPush(); lineStub({ fail: { path: '/message/quota', code: 500 } });
+  ok(pushRosterToGroup().includes('已推播'));
+});
+t('推播失敗會丟出錯誤，不會假裝成功', () => {
+  readyToPush(); lineStub({ fail: { path: '/message/push', code: 429, text: '{"message":"quota exceeded"}' } });
+  let threw = false;
+  try { pushRosterToGroup(); } catch (e) { threw = String(e.message).includes('429'); }
+  ok(threw, '額度爆掉時應該要丟錯誤');
+  eq(scriptProps.get('LINE_LAST_PUSH_DATE'), undefined);
+});
+
+section('LINE：設定欄位');
+
+t('ensureLineConfigRows 可重複執行', () => {
+  const before = sheetRows('設定').length;
+  ensureLineConfigRows();
+  eq(sheetRows('設定').length, before);
+});
+t('設定表裡沒有 token（token 只能放指令碼屬性）', () => {
+  const raw = JSON.stringify(sheetRows('設定'));
+  ok(!raw.includes('LINE_CHANNEL_TOKEN') && !raw.includes('Channel access'), '設定表不該出現 token 欄位');
+});
+
 
 console.log(`\n=== ${pass} 通過 / ${fail} 失敗 ===`);
 process.exit(fail ? 1 : 0);

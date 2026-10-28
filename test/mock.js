@@ -116,4 +116,32 @@ global.Utilities = {
   },
 };
 
-module.exports = { ss, mails, dialogs, ui };
+// ---------------------------------------------------------------------------
+// 指令碼屬性（API key 這類「程式自己用」的設定，不放試算表）
+// ---------------------------------------------------------------------------
+const scriptProps = new Map();
+global.PropertiesService = {
+  getScriptProperties: () => ({
+    getProperty: k => (scriptProps.has(k) ? scriptProps.get(k) : null),
+    setProperty(k, v) { scriptProps.set(k, String(v)); return this; },
+    deleteProperty(k) { scriptProps.delete(k); return this; },
+  }),
+};
+
+// ---------------------------------------------------------------------------
+// 對外 HTTP。fetchLog 記下每一次呼叫；setFetch 指定要回什麼。
+//   setFetch((url, opt) => ({ code: 429, text: '{}' }))
+// 沒指定時一律回 200 {}，所以不在乎回應的測試不必設。
+// ---------------------------------------------------------------------------
+const fetchLog = [];
+let fetchHandler = null;
+const setFetch = fn => { fetchHandler = fn; };
+global.UrlFetchApp = {
+  fetch(url, opt) {
+    fetchLog.push({ url, opt, body: opt && opt.payload ? JSON.parse(opt.payload) : null });
+    const r = (fetchHandler && fetchHandler(url, opt)) || { code: 200, text: '{}' };
+    return { getResponseCode: () => r.code, getContentText: () => r.text };
+  },
+};
+
+module.exports = { ss, mails, dialogs, ui, scriptProps, fetchLog, setFetch };

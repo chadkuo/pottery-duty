@@ -39,6 +39,25 @@ var SUB_VOID    = '已失效';
 
 var WEEKDAY_CH = ['日', '一', '二', '三', '四', '五', '六'];
 
+// LINE Messaging API
+var LINE_API            = 'https://api.line.me/v2/bot';
+var LINE_TOKEN_KEY      = 'LINE_CHANNEL_TOKEN';    // 放 PropertiesService，不放試算表
+var LINE_LAST_PUSH      = 'LINE_LAST_PUSH_DATE';   // 上次推播日期，用來算間隔
+var LINE_SECRET_KEY     = 'LINE_WEBHOOK_SECRET';   // webhook 網址上的通行碼，見 doPost 的說明
+var LINE_QUOTA_BUFFER   = 20;                      // 額度安全邊際：剩餘不足「群組人數 + 這個數」就不推
+var LINE_SIZE_FALLBACK  = 60;                      // 查不到群組人數時的保守估計
+
+// 「設定」工作表的 LINE 欄位。建表時寫入，既有的表用 ensureLineConfigRows() 補。
+var LINE_CONFIG_ROWS = [
+  ['LINE 群組 ID', '', '（選填）填了才會主動推播。把 bot 加進群組後，在群組打一次關鍵字，ID 會記在「操作紀錄」'],
+  ['啟用 LINE 推播', 'FALSE', 'TRUE = 定期主動推播到群組。推播按群組人數計費，免費方案每月 200 則'],
+  ['LINE 推播間隔週數', 2, '每隔幾週推一次。58 人的群組推一次 58 則，設 2 約等於每月 116 則'],
+  ['LINE 查詢關鍵字', '值日生', '群組裡打到這幾個字，bot 就回覆最新名單。回覆不計費，次數無上限'],
+  ['LINE 關鍵字比對方式', '完全相同', '完全相同 / 開頭 / 包含。群組裡「值日生」本來就是日常用語，設成「包含」會一直跳出來'],
+  ['LINE 回覆顯示堂數', 2, '群組查詢時回覆接下來幾堂。停課的那幾週照樣會列出來，但不佔名額'],
+  ['排班網頁網址', '', '（選填）填了的話，LINE 回覆最後會附上這個連結。⚠ 要填「正式」那個部署對應的網頁，不要填測試的']
+];
+
 // ---------------------------------------------------------------------------
 // 日期工具（一律用 yyyy-MM-dd 純字串運算，避開時區位移）
 // ---------------------------------------------------------------------------
@@ -131,7 +150,7 @@ function setupConfigSheet_(ss) {
     ['代班通知全班', 'FALSE', 'TRUE = 有人徵求代班時寄信通知全班（注意 Gmail 每日 100 封上限）'],
     ['班長信箱', '', '（選填）每週進度信、代班通知的收件人'],
     ['提醒信主旨前綴', '【陶藝班值日生】', '（選填）']
-  ];
+  ].concat(LINE_CONFIG_ROWS);
   sh.getRange(1, 1, rows.length, 3).setValues(rows);
   sh.getRange(1, 1, 1, 3).setFontWeight('bold').setBackground('#e8eaed');
   sh.getRange(2, 2, rows.length - 1, 1).setNumberFormat('@'); // 純文字，避免日期被轉型
@@ -236,7 +255,16 @@ function getConfig_() {
     subsOpen:      isTrue_(map['開放代班']),
     notifyAllSubs: isTrue_(map['代班通知全班']),
     leaderEmail:   String(map['班長信箱'] || '').trim(),
-    subjectPrefix: String(map['提醒信主旨前綴'] || '【值日生】')
+    subjectPrefix: String(map['提醒信主旨前綴'] || '【值日生】'),
+
+    // LINE。欄位不存在時一律視為停用，所以舊的試算表不會因此壞掉。
+    lineGroupId:   String(map['LINE 群組 ID'] || '').trim(),
+    linePushOn:    isTrue_(map['啟用 LINE 推播']),
+    linePushEvery: Math.max(1, Number(map['LINE 推播間隔週數']) || 2),
+    lineKeyword:   String(map['LINE 查詢關鍵字'] || '值日生').trim(),
+    lineMatch:     String(map['LINE 關鍵字比對方式'] || '完全相同').trim(),
+    lineReplyAhead: Math.max(1, Number(map['LINE 回覆顯示堂數']) || 2),
+    siteUrl:       String(map['排班網頁網址'] || '').trim()
   };
 }
 
@@ -670,6 +698,22 @@ function doPost(e) {
   try { body = JSON.parse((e && e.postData && e.postData.contents) || '{}'); }
   catch (err) { return json_({ ok: false, error: '請求格式錯誤' }); }
 
+  // LINE webhook 跟網頁前端共用同一個網址，用 payload 的形狀分流。
+  // 不論處理成功與否都要回 200 —— 回非 2xx 的話 LINE 會重試，連續失敗會把 webhook 關掉。
+  if (body && body.events instanceof Array) {
+    // Apps Script 的 doPost 拿不到 HTTP 標頭，所以**沒辦法驗證 X-Line-Signature**。
+    // 退而求其次：webhook 網址後面掛 ?k=通行碼，從 e.parameter 讀得到。
+    // 沒設通行碼時照常運作（方便初次設定），設了就一定要對。
+    var secret = PropertiesService.getScriptProperties().getProperty(LINE_SECRET_KEY);
+    if (secret && String((e && e.parameter && e.parameter.k) || '') !== String(secret)) {
+      Logger.log('LINE webhook 通行碼不符，已略過');
+      return json_({ ok: true });
+    }
+    try { handleLineWebhook_(body); }
+    catch (err) { Logger.log('LINE webhook 失敗：' + (err && err.message || err)); }
+    return json_({ ok: true });
+  }
+
   try {
     switch (body.action) {
       case 'read':      return json_(buildState_());
@@ -1051,8 +1095,16 @@ function installTriggers() {
   ScriptApp.newTrigger('sendWeeklyStatusToLeader')
     .timeBased().onWeekDay(eve).atHour(20).inTimezone(TZ).create();
 
+  // LINE 推播掛每週，但 pushRosterToGroup() 自己會依「推播間隔週數」決定要不要真的推
+  if (cfg.linePushOn) {
+    ScriptApp.newTrigger('pushRosterToGroup')
+      .timeBased().onWeekDay(eve).atHour(19).inTimezone(TZ).create();
+  }
+
   var msg = '已建立提醒：每週' + WEEKDAY_CH[dow] + ' 07:00 通知當天值日生、' +
-            '每週' + WEEKDAY_CH[(dow + 6) % 7] + ' 20:00 寄排班進度給班長。';
+            '每週' + WEEKDAY_CH[(dow + 6) % 7] + ' 20:00 寄排班進度給班長。' +
+            (cfg.linePushOn ? '另外每週' + WEEKDAY_CH[(dow + 6) % 7] + ' 19:00 檢查是否該推播 LINE（每 ' +
+                              cfg.linePushEvery + ' 週一次）。' : '');
   Logger.log(msg);
   return msg;
 }
@@ -1163,6 +1215,351 @@ function sendWeeklyStatusToLeader() {
 // 班長工具
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// LINE Messaging API
+//
+// 計費的只有「主動推播」(push)，而且是按群組人數計算 —— 58 人的群組推一次就是
+// 58 則，免費方案一個月只有 200 則。「被動回覆」(reply) 不計費也沒有上限。
+//
+// 所以這裡的策略是：
+//   日常查詢 → 群組裡有人打關鍵字，bot 回覆（免費、無限次）
+//   主動通知 → 每隔幾週推一次，推之前先問額度，不夠就改寄信給班長
+//
+// Channel access token 放 PropertiesService，不放試算表 —— 試算表會被複製、
+// 匯出、截圖，任何有檢視權的人都看得到。
+// ---------------------------------------------------------------------------
+
+/** @return {string} 空字串代表尚未設定 */
+function lineToken_() {
+  var t = PropertiesService.getScriptProperties().getProperty(LINE_TOKEN_KEY);
+  return t ? String(t).trim() : '';
+}
+
+/** 所有 LINE API 呼叫的共用出口。自己判斷狀態碼，才看得到錯誤訊息。 */
+function lineFetch_(method, path, payload) {
+  var token = lineToken_();
+  if (!token) throw new Error('尚未設定 ' + LINE_TOKEN_KEY + '（專案設定 → 指令碼屬性）');
+
+  var opt = { method: method, headers: { Authorization: 'Bearer ' + token }, muteHttpExceptions: true };
+  if (payload) { opt.contentType = 'application/json'; opt.payload = JSON.stringify(payload); }
+
+  var res  = UrlFetchApp.fetch(LINE_API + path, opt);
+  var code = res.getResponseCode();
+  var text = res.getContentText();
+  if (code < 200 || code >= 300) throw new Error('LINE API ' + path + ' 回 ' + code + '：' + text);
+  return text ? JSON.parse(text) : {};
+}
+
+/** 回覆。不計費、無上限，所以查詢功能想用幾次都可以。 */
+function lineReply_(replyToken, text) {
+  return lineFetch_('post', '/message/reply', {
+    replyToken: replyToken, messages: [{ type: 'text', text: text }]
+  });
+}
+
+/** 主動推播。計費，而且推到群組是按人數算。 */
+function linePush_(to, text) {
+  return lineFetch_('post', '/message/push', {
+    to: to, messages: [{ type: 'text', text: text }]
+  });
+}
+
+/** 本月還剩幾則可推。Infinity = 無上限或查不到，查不到時不要因此擋住推播。 */
+function lineQuotaLeft_() {
+  var q = lineFetch_('get', '/message/quota');
+  if (!q || q.type !== 'limited') return Infinity;
+  var used = lineFetch_('get', '/message/quota/consumption');
+  return Number(q.value || 0) - Number((used && used.totalUsage) || 0);
+}
+
+/** 群組實際人數。加人、退群都會變，所以不要寫死。 */
+function lineGroupSize_(groupId) {
+  var r = lineFetch_('get', '/group/' + encodeURIComponent(groupId) + '/members/count');
+  return Number((r && r.count) || 0);
+}
+
+/**
+ * 給 LINE 看的簡短名單：只列接下來幾堂，不是整學期。
+ * 整學期 18 行在手機上要滑很久，而且代班換人之後舊訊息就過期了。
+ */
+function buildLineDigest_(ahead) {
+  var state = buildState_();
+  var today = todayStr_();
+  // 停課週照樣列出來（同學需要知道那天不用來），但不佔「接下來幾堂」的名額，
+  // 否則碰到連假時，問一次只看得到一堂真正要排班的課。
+  var want = Math.max(1, ahead);
+  var upcoming = [], counted = 0;
+  state.weeks.forEach(function (w) {
+    if (w.date < today || counted >= want) return;
+    upcoming.push(w);
+    if (w.needsDuty) counted++;
+  });
+
+  // 連結放最後一行。LINE 會自動變成可點的，不需要額外處理。
+  var cfg  = getConfig_();
+  var foot = cfg.siteUrl ? ['', '想報名或找人代班：', cfg.siteUrl] : [];
+
+  if (!upcoming.length) {
+    return [state.className + ' ' + state.semester + ' 已經沒有未來的課程了。']
+           .concat(foot).join('\n');
+  }
+
+  var lines = [state.className + ' ' + state.semester + ' 值日生'];
+  upcoming.forEach(function (w) {
+    var head = w.date.slice(5).replace('-', '/') + '（' + weekdayCh_(w.date) + '）' +
+               '第 ' + w.no + '/' + state.weeks.length + ' 堂';
+    if (!w.needsDuty) { lines.push(head + '　' + (w.label || '不用排值日生')); return; }
+
+    var filled = w.slots.filter(function (n) { return n; });
+    var line = head + '　' + (filled.length ? filled.join('、') : '（還沒有人）');
+    var short = state.perWeek - filled.length;
+    if (short > 0) line += '　還缺 ' + short + ' 位';
+    if (w.subs.length) line += '\n　⚠ ' + w.subs.join('、') + ' 徵求代班中';
+    lines.push(line);
+  });
+  return lines.concat(foot).join('\n');
+}
+
+/**
+ * 這句話算不算在問值日生。
+ *
+ * 預設「完全相同」—— 群組裡「值日生」本來就是日常用語（「今天值日生很不OK」），
+ * 只要「包含」就回的話，bot 會變成洗版機器。安靜比聰明重要。
+ * 結尾的問號、波浪號這類語氣符號先去掉，免得打了「值日生？」反而沒反應。
+ */
+function lineKeywordHit_(text, keyword, mode) {
+  if (!keyword) return true;   // 沒設關鍵字 = 來者不拒，自我診斷會對此提出警告
+  var t = String(text || '').trim().replace(/[\s?？!！。.~～、，,]+$/, '');
+  if (mode === '包含') return t.indexOf(keyword) !== -1;
+  if (mode === '開頭') return t.indexOf(keyword) === 0;
+  return t === keyword;        // 完全相同
+}
+
+/**
+ * 處理 LINE 傳進來的事件。
+ * 只回覆、不推播，所以這條路徑完全不花額度。
+ */
+function handleLineWebhook_(body) {
+  var cfg = getConfig_();
+  var events = (body && body.events) || [];
+
+  events.forEach(function (ev) {
+    if (!ev || ev.type !== 'message' || !ev.message || ev.message.type !== 'text') return;
+    if (!ev.replyToken) return;
+
+    // 還沒設定群組 ID 時，把它記進「操作紀錄」，班長才找得到要填什麼
+    var gid = ev.source && ev.source.groupId;
+    if (gid && !cfg.lineGroupId) appendLog_('LINE 群組 ID', '', '', '', gid);
+
+    if (!lineKeywordHit_(ev.message.text, cfg.lineKeyword, cfg.lineMatch)) return;
+
+    lineReply_(ev.replyToken, buildLineDigest_(cfg.lineReplyAhead));
+  });
+}
+
+/**
+ * 主動推播給群組。由時間觸發器每週呼叫，但自己判斷「這次該不該推」：
+ *   1. 沒啟用、沒群組 ID、沒 token  → 不推
+ *   2. 距離上次推播不滿設定的週數    → 不推
+ *   3. 本月額度不夠                → 不推，改寄信給班長
+ * 額度用完時 push 會回 429 而且不會有人知道，所以第 3 點不是加分項。
+ */
+function pushRosterToGroup() {
+  var cfg = getConfig_();
+  if (!cfg.linePushOn)    return '未啟用 LINE 推播';
+  if (!cfg.lineGroupId)   return '「設定」裡還沒填 LINE 群組 ID';
+  if (!lineToken_())      return '尚未設定 ' + LINE_TOKEN_KEY;
+
+  var props = PropertiesService.getScriptProperties();
+  var last  = props.getProperty(LINE_LAST_PUSH) || '';
+  var today = todayStr_();
+  if (last) {
+    var days = Math.round((toUTC_(today) - toUTC_(last)) / 86400000);
+    if (days < cfg.linePushEvery * 7 - 1) {
+      return '距離上次推播（' + last + '）未滿 ' + cfg.linePushEvery + ' 週，略過';
+    }
+  }
+
+  // 查不到就不要因此擋住推播 —— 寧可推出去，也不要安靜地什麼都沒發生
+  var size = 0, left = Infinity;
+  try { size = lineGroupSize_(cfg.lineGroupId); } catch (err) { size = 0; }
+  try { left = lineQuotaLeft_(); }               catch (err) { left = Infinity; }
+
+  var need = (size || LINE_SIZE_FALLBACK) + LINE_QUOTA_BUFFER;
+  if (left < need) {
+    notifyLeaderQuotaLow_(cfg, left, size, need);
+    return '本月額度剩 ' + left + ' 則，不足 ' + need + ' 則，已改寄信通知班長';
+  }
+
+  linePush_(cfg.lineGroupId, buildLineDigest_(cfg.linePushEvery + 1));
+  props.setProperty(LINE_LAST_PUSH, today);
+  appendLog_('LINE 推播', '', '', today, '群組 ' + (size || '?') + ' 人，推播後剩約 ' + (left - (size || 0)) + ' 則');
+  return '已推播給群組（' + (size || '?') + ' 人）';
+}
+
+/** 額度不夠時改走 email —— 這是整條路上唯一不依賴 LINE 額度的通道。 */
+function notifyLeaderQuotaLow_(cfg, left, size, need) {
+  if (!cfg.leaderEmail) return;
+  MailApp.sendEmail({
+    to: cfg.leaderEmail,
+    subject: cfg.subjectPrefix + 'LINE 推播額度不足，本次未發送',
+    body: [
+      '這次的 LINE 群組推播沒有送出，因為本月額度不夠。',
+      '',
+      '　本月剩餘　' + left + ' 則',
+      '　這次需要　' + need + ' 則（群組 ' + (size || '未知') + ' 人 + 安全邊際 ' + LINE_QUOTA_BUFFER + '）',
+      '',
+      '群組裡的同學仍然可以打「' + cfg.lineKeyword + '」查詢，那是回覆訊息，不計費。',
+      '想手動貼一次的話，用試算表選單「值日生 → 產生 LINE 公告文字」。',
+      '',
+      '額度每月一號重置。'
+    ].join('\n')
+  });
+}
+
+/** 選單用：跑一次推播並把結果顯示出來（觸發器呼叫時沒有 UI，所以要容錯）。 */
+function pushLineNow() {
+  var msg;
+  try { msg = pushRosterToGroup(); }
+  catch (err) { msg = '失敗：' + (err && err.message || err); }
+  var ui = null;
+  try { ui = SpreadsheetApp.getUi(); } catch (e) { ui = null; }
+  if (ui) ui.alert('LINE 推播', msg, ui.ButtonSet.OK);
+  Logger.log(msg);
+  return msg;
+}
+
+/**
+ * 在既有的「設定」工作表補上 LINE 相關欄位。
+ * setupConfigSheet_() 只在建表時跑一次，已經在用的試算表不會自動長出新欄位，
+ * 所以要有這個。可以重複執行，已經存在的不會重複加。
+ */
+function ensureLineConfigRows() {
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_CONFIG);
+  if (!sh) throw new Error('找不到「' + SHEET_CONFIG + '」工作表，請先執行 setup()');
+
+  var have = {};
+  sh.getDataRange().getValues().forEach(function (r) { have[String(r[0]).trim()] = true; });
+
+  var added = LINE_CONFIG_ROWS.filter(function (r) { return !have[r[0]]; });
+  if (added.length) {
+    sh.getRange(sh.getLastRow() + 1, 1, added.length, 3).setValues(added);
+    sh.getRange(sh.getLastRow() - added.length + 1, 2, added.length, 1).setNumberFormat('@');
+  }
+
+  var msg = added.length
+    ? '已在「設定」補上 ' + added.length + ' 個欄位：' + added.map(function (r) { return r[0]; }).join('、')
+    : '「設定」裡的 LINE 欄位都已存在，沒有變更。';
+  var ui = null;
+  try { ui = SpreadsheetApp.getUi(); } catch (e) { ui = null; }
+  if (ui) ui.alert('LINE 設定', msg + '\n\n提醒：Channel access token 不放在這裡，\n要填在「專案設定 → 指令碼屬性 → ' + LINE_TOKEN_KEY + '」。', ui.ButtonSet.OK);
+  return msg;
+}
+
+/**
+ * 一鍵自我診斷：bot 在群組裡沒反應時先跑這個。
+ * 從 token 一路驗到 webhook，直接告訴你斷在哪一關 ——
+ * 「執行項目」的記錄只看得到我們自己這邊的錯誤，
+ * 看不到「LINE 根本沒把請求送過來」這種情況，那才是最常見的原因。
+ */
+function lineSelfTest() {
+  var out  = [];
+  var pass = function (t, d) { out.push('✅ ' + t + (d ? '\n　　' + d : '')); };
+  var fail = function (t, d) { out.push('❌ ' + t + (d ? '\n　　' + d : '')); };
+  var warn = function (t, d) { out.push('⚠️ ' + t + (d ? '\n　　' + d : '')); };
+  var show = function () {
+    var msg = out.join('\n');
+    var ui = null;
+    try { ui = SpreadsheetApp.getUi(); } catch (e) { ui = null; }
+    if (ui) ui.alert('LINE 連線診斷', msg, ui.ButtonSet.OK);
+    Logger.log(msg);
+    return msg;
+  };
+
+  // 1. token 有沒有設。後面每一關都要用，沒有就不必往下驗了。
+  var token = lineToken_();
+  if (!token) {
+    fail('Channel access token 尚未設定',
+         '專案設定 → 指令碼屬性 → 新增 ' + LINE_TOKEN_KEY);
+    return show();
+  }
+  pass('Channel access token 已設定', '長度 ' + token.length + ' 字');
+
+  // 2. token 是不是真的能用
+  try {
+    var info = lineFetch_('get', '/info');
+    pass('token 有效', '官方帳號：' + (info.displayName || '?') + '（' + (info.basicId || '') + '）');
+    if (String(info.chatMode) === 'chat') {
+      warn('目前是「聊天模式」',
+           '回應模式要切到「Bot」，否則訊息會被聊天功能接走。\n　　OA Manager → 設定 → 回應設定');
+    }
+  } catch (err) {
+    fail('token 無效或已被撤銷', String(err && err.message || err));
+    return show();
+  }
+
+  // 3. webhook 網址登記了沒
+  var endpoint = '';
+  try {
+    var ep = lineFetch_('get', '/channel/webhook/endpoint');
+    endpoint = String(ep.endpoint || '');
+    if (!endpoint)       fail('還沒登記 webhook 網址', 'Developers Console → Messaging API → Webhook URL');
+    else if (!ep.active) fail('webhook 網址已登記，但沒啟用', '把下面的「Use webhook」打開');
+    else                 pass('webhook 已啟用', endpoint);
+
+    if (endpoint && endpoint.indexOf('k=') === -1) {
+      warn('webhook 網址沒有帶通行碼',
+           'Apps Script 讀不到 HTTP 標頭、驗不了簽章，所以改用網址上的 ?k=。\n　　沒帶的話，任何人知道網址就能觸發。');
+    }
+  } catch (err) {
+    fail('查不到 webhook 設定', String(err && err.message || err));
+  }
+
+  // 4. 請 LINE 實際打一次，確認它真的碰得到我們
+  if (endpoint) {
+    try {
+      var t = lineFetch_('post', '/channel/webhook/test', {});
+      if (t.success) pass('LINE 送得到我們', 'HTTP ' + t.statusCode);
+      else fail('LINE 送不到我們',
+                'HTTP ' + t.statusCode + ' ' + (t.reason || '') + ' ' + (t.detail || '') +
+                '\n　　多半是部署沒更新，或存取權不是「所有人」');
+    } catch (err) {
+      fail('webhook 測試失敗', String(err && err.message || err));
+    }
+    warn('這一關只測「打得到」',
+         '通行碼不對時我們一樣回 200（回非 2xx 會讓 LINE 以為壞掉而關掉 webhook），\n　　所以這關過了，不代表 ?k= 填對了。');
+  }
+
+  // 5. 試算表這邊的設定
+  var cfg = getConfig_();
+  if (cfg.lineKeyword) pass('查詢關鍵字', '「' + cfg.lineKeyword + '」（比對方式：' + cfg.lineMatch + '）');
+  else warn('沒設查詢關鍵字', '群組裡任何一句話都會觸發回覆');
+
+  if (!cfg.lineGroupId) {
+    warn('還沒填 LINE 群組 ID',
+         '這只影響「主動推播」，不影響關鍵字回覆。\n　　在群組打一次關鍵字，ID 就會記進「操作紀錄」。');
+  } else {
+    try { pass('群組 ID 可用', '目前 ' + lineGroupSize_(cfg.lineGroupId) + ' 人'); }
+    catch (err) { fail('群組 ID 有問題', String(err && err.message || err)); }
+  }
+
+  // 6. 額度
+  try {
+    var left = lineQuotaLeft_();
+    if (left === Infinity) pass('本月推播額度', '無上限');
+    else out.push((left < LINE_SIZE_FALLBACK ? '⚠️ ' : '✅ ') +
+                  '本月推播額度\n　　還剩 ' + left + ' 則（回覆不計費，只有主動推播要算）');
+  } catch (err) {
+    warn('查不到額度', String(err && err.message || err));
+  }
+
+  out.push('');
+  out.push(cfg.linePushOn
+    ? '主動推播：已啟用，每 ' + cfg.linePushEvery + ' 週一次'
+    : '主動推播：未啟用（「設定」的「啟用 LINE 推播」改成 TRUE 才會推）');
+  return show();
+}
+
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('值日生')
@@ -1170,6 +1567,9 @@ function onOpen() {
     .addItem('清空所有值日生（重新排班）', 'clearAllDuties')
     .addSeparator()
     .addItem('產生 LINE 公告文字', 'showLineText')
+    .addItem('立即推播到 LINE 群組', 'pushLineNow')
+    .addItem('在「設定」補上 LINE 欄位', 'ensureLineConfigRows')
+    .addItem('LINE 連線自我診斷', 'lineSelfTest')
     .addSeparator()
     .addItem('立即寄出今日提醒', 'sendTodayDutyReminder')
     .addItem('立即寄出進度給班長', 'sendWeeklyStatusToLeader')
