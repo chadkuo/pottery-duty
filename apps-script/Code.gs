@@ -1494,6 +1494,33 @@ function notifyLeaderQuotaLow_(cfg, left, size, need) {
   });
 }
 
+/**
+ * 選單「推播內容預覽」。只算不發，也不寫「上次推播」日期。
+ * 推播是按人數計費的單向動作，送出去就收不回來 ——
+ * 一定要有一個「先看看會送出什麼」的地方，否則唯一的預覽方式是真的發一次。
+ */
+function previewLinePush() {
+  var cfg  = getConfig_();
+  var text = buildLinePushText_(cfg.linePushAhead);
+  if (!text) text = '（學期已經沒有未來的課程了，這種情況不會推播）';
+
+  var size = 0;
+  try { size = cfg.lineGroupId ? lineGroupSize_(cfg.lineGroupId) : 0; } catch (e) { size = 0; }
+
+  var head = size
+    ? '送出的話，' + size + ' 個人會收到，扣 ' + size + ' 則額度。'
+    : '（查不到群組人數，可能還沒填群組 ID）';
+
+  var html = HtmlService.createHtmlOutput(
+    '<p style="font:13px/1.5 -apple-system,sans-serif">' + head +
+    '　<b>這個視窗不會發送任何訊息。</b></p>' +
+    '<textarea readonly style="width:100%;height:360px;font:13px/1.6 monospace">' +
+    text.replace(/&/g, '&amp;').replace(/</g, '&lt;') +
+    '</textarea>'
+  ).setWidth(560).setHeight(460);
+  SpreadsheetApp.getUi().showModalDialog(html, '推播內容預覽（不會發送）');
+}
+
 /** 選單用：跑一次推播並把結果顯示出來（觸發器呼叫時沒有 UI，所以要容錯）。 */
 function pushLineNow() {
   var msg;
@@ -1595,10 +1622,15 @@ function lineSelfTest() {
   // 4. 請 LINE 實際打一次，確認它真的碰得到我們
   if (endpoint) {
     try {
-      var t = lineFetch_('post', '/channel/webhook/test', {});
-      if (t.success) pass('LINE 送得到我們', 'HTTP ' + t.statusCode);
+      var t  = lineFetch_('post', '/channel/webhook/test', {});
+      var sc = Number(t.statusCode) || 0;
+      // Apps Script 的網頁應用程式「一律」用 302 把結果轉到 googleusercontent.com，
+      // 所以 302 是正常的，不是壞掉。LINE 的測試 API 只看狀態碼，會判成 success:false。
+      if (t.success)             pass('LINE 送得到我們', 'HTTP ' + sc);
+      else if (sc >= 300 && sc < 400)
+        pass('LINE 送得到我們', 'HTTP ' + sc + '（Apps Script 的正常轉址，不是錯誤）');
       else fail('LINE 送不到我們',
-                'HTTP ' + t.statusCode + ' ' + (t.reason || '') + ' ' + (t.detail || '') +
+                'HTTP ' + sc + ' ' + (t.reason || '') + ' ' + (t.detail || '') +
                 '\n　　多半是部署沒更新，或存取權不是「所有人」');
     } catch (err) {
       fail('webhook 測試失敗', String(err && err.message || err));
@@ -1630,11 +1662,27 @@ function lineSelfTest() {
     warn('查不到額度', String(err && err.message || err));
   }
 
+  // 7. 推播排程 —— 設定是 TRUE 不代表觸發器真的建好了。
+  //    installTriggers() 只在「執行當下」linePushOn 為真才會建，
+  //    先跑排程、後改 TRUE 的順序會留下一個「看起來啟用、其實不會發」的狀態。
   out.push('');
-  out.push(cfg.linePushOn
-    ? '主動推播：已啟用，每 ' + cfg.linePushEvery + ' 週一次'
-    : '主動推播：未啟用（「設定」的「啟用 LINE 推播」改成 TRUE 才會推）');
+  if (!cfg.linePushOn) {
+    out.push('主動推播：未啟用（「設定」的「啟用 LINE 推播」改成 TRUE 才會推）');
+  } else if (hasTrigger_('pushRosterToGroup')) {
+    out.push('✅ 主動推播：已啟用，每 ' + cfg.linePushEvery + ' 週一次');
+    out.push('　　上次推播：' +
+             (PropertiesService.getScriptProperties().getProperty(LINE_LAST_PUSH) || '還沒推過（下次排程就會推第一則）'));
+  } else {
+    out.push('❌ 主動推播：設定是 TRUE，但排程沒建立，所以不會發');
+    out.push('　　請執行選單的「重新建立自動提醒排程」');
+  }
   return show();
+}
+
+function hasTrigger_(fnName) {
+  return ScriptApp.getProjectTriggers().some(function (t) {
+    return t.getHandlerFunction() === fnName;
+  });
 }
 
 function onOpen() {
@@ -1644,6 +1692,7 @@ function onOpen() {
     .addItem('清空所有值日生（重新排班）', 'clearAllDuties')
     .addSeparator()
     .addItem('產生 LINE 公告文字', 'showLineText')
+    .addItem('推播內容預覽（不會發送）', 'previewLinePush')
     .addItem('立即推播到 LINE 群組', 'pushLineNow')
     .addItem('在「設定」補上 LINE 欄位', 'ensureLineConfigRows')
     .addItem('LINE 連線自我診斷', 'lineSelfTest')
