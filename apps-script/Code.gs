@@ -1629,6 +1629,12 @@ function lineSelfTest() {
       if (t.success)             pass('LINE 送得到我們', 'HTTP ' + sc);
       else if (sc >= 300 && sc < 400)
         pass('LINE 送得到我們', 'HTTP ' + sc + '（Apps Script 的正常轉址，不是錯誤）');
+      else if (!sc || String(t.reason).indexOf('TIMEOUT') !== -1)
+        // LINE 要求 1 秒內回應，而 Apps Script 開一次試算表就要 1 秒上下，
+        // 冷啟動時必定超過。這不代表壞掉 —— 真正的驗證是在群組裡打一次關鍵字。
+        warn('這次 LINE 等不到回應（' + (t.reason || 'timeout') + '）',
+             'Apps Script 冷啟動時會超過 LINE 的 1 秒上限，隔一下再測多半就過了。\n' +
+             '　　要確認通的話，直接到群組打一次「' + getConfig_().lineKeyword + '」最準。');
       else fail('LINE 送不到我們',
                 'HTTP ' + sc + ' ' + (t.reason || '') + ' ' + (t.detail || '') +
                 '\n　　多半是部署沒更新，或存取權不是「所有人」');
